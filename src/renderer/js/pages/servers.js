@@ -4,6 +4,7 @@ import { esc, $, modal, toast, confirmDialog } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
 import { state, set, on, api, profile, profileLabel } from '../store.js'
 import { go } from '../router.js'
+import { launchChecked } from '../ui/tools.js'
 
 const ADDRESS_RE = /^[A-Za-z0-9.\-_]{1,253}(:\d{1,5})?$/
 
@@ -142,7 +143,7 @@ export function render (root) {
       if (!s) return
       if (!state.settings.nickname) { toast('Сначала укажи ник', 'err'); return }
       go('home')
-      try { await api.game.launch(profile(), { server: s.address }) } catch { /* ошибку покажет главная */ }
+      await launchChecked(profile(), { server: s.address })
     }
   })
 

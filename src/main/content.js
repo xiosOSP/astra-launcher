@@ -108,7 +108,8 @@ async function latestVersion (projectId, profile, type) {
   return pickVersion(list)
 }
 
-async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {}, visited = new Set()) {
+// ctx.onReplace(путь) — что сделать со старым файлом при замене (по умолчанию удалить).
+async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {}, visited = new Set(), ctx = {}) {
   profile = normalize(profile)
   const info = typeInfo(type)
   if (type === 'mod' && profile.loader !== 'fabric') throw new Error('Для модов нужна версия с Fabric')
@@ -127,19 +128,28 @@ async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {
 
   const dir = subDir(profile, info.folder, true)
 
+  // Новый файл с тем же именем перезапишет старый — для отката сохраняем копию.
+  if (ctx.onReplace && fs.existsSync(inside(dir, fileName))) ctx.onReplace(inside(dir, fileName), { copy: true })
   onStatus({ stage: `Скачиваю ${project.title}` })
   await download(file.url, inside(dir, fileName), {
     group: 'mods',
     hash: file.hashes && file.hashes.sha512 ? { algo: 'sha512', value: file.hashes.sha512 } : null,
     onProgress: (cur, total) => onStatus({ stage: `Скачиваю ${project.title}`, current: cur, total })
   })
-  fs.rmSync(path.join(dir, fileName + '.disabled'), { force: true })
+  if (ctx.added) ctx.added.add(fileName)
+  const disabledTwin = path.join(dir, fileName + '.disabled')
+  if (ctx.onReplace && fs.existsSync(disabledTwin)) ctx.onReplace(disabledTwin)
+  else fs.rmSync(disabledTwin, { force: true })
 
   // Старую версию этого же мода удаляем только после того, как новая скачалась.
   const meta = readMeta(profile)
   for (const [fname, m] of Object.entries(meta[type])) {
     if (m.projectId === projectId && fname !== fileName) {
-      for (const f of [fname, fname + '.disabled']) fs.rmSync(path.join(dir, f), { force: true })
+      for (const f of [fname, fname + '.disabled']) {
+        const full = path.join(dir, f)
+        if (ctx.onReplace && fs.existsSync(full)) ctx.onReplace(full)
+        else fs.rmSync(full, { force: true })
+      }
       delete meta[type][fname]
     }
   }
@@ -159,7 +169,7 @@ async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {
   // Шейдерам нужен Iris (он сам подтянет Sodium).
   if (type === 'shader' && !installedIds({ profile, type: 'mod' }).includes(IRIS_ID)) {
     try {
-      const sub = await install({ projectId: IRIS_ID, profile, type: 'mod' }, onStatus, visited)
+      const sub = await install({ projectId: IRIS_ID, profile, type: 'mod' }, onStatus, visited, ctx)
       result.installed.push(...sub.installed)
       result.warnings.push(...sub.warnings)
     } catch (e) {
@@ -177,7 +187,7 @@ async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {
         depId = (await fetchJson(`${API}/version/${dep.version_id}`)).project_id
       }
       if (!depId || installedIds({ profile, type }).includes(depId)) continue
-      const sub = await install({ projectId: depId, profile, type }, onStatus, visited)
+      const sub = await install({ projectId: depId, profile, type }, onStatus, visited, ctx)
       result.installed.push(...sub.installed)
       result.warnings.push(...sub.warnings)
     } catch (e) {
@@ -276,14 +286,14 @@ async function checkUpdates ({ profile, type = 'mod' }) {
 }
 
 // Обновление одного проекта. Выключенный мод остаётся выключенным.
-async function updateOne ({ profile, type = 'mod', file }, onStatus) {
+async function updateOne ({ profile, type = 'mod', file }, onStatus, ctx = {}) {
   profile = normalize(profile)
   const dir = subDir(profile, typeInfo(type).folder)
   const name = path.basename(String(file))
   const m = readMeta(profile)[type][name]
   if (!m || !m.projectId) throw new Error('Неизвестно, откуда этот файл — обнови его вручную')
   const wasDisabled = !fs.existsSync(path.join(dir, name)) && fs.existsSync(path.join(dir, name + '.disabled'))
-  const res = await install({ projectId: m.projectId, profile, type }, onStatus, new Set())
+  const res = await install({ projectId: m.projectId, profile, type }, onStatus, new Set(), ctx)
   if (wasDisabled) {
     const now = Object.entries(readMeta(profile)[type]).find(([, x]) => x.projectId === m.projectId)
     if (now && fs.existsSync(path.join(dir, now[0]))) fs.renameSync(path.join(dir, now[0]), path.join(dir, now[0] + '.disabled'))
@@ -300,10 +310,163 @@ function installQueued (params, onStatus) {
   return run
 }
 
+// ---------- откат обновления ----------
+// Перед обновлением запоминаем список файлов и content.json, а заменённые файлы
+// не удаляем, а складываем в .astra/rollback-<тип>/files. «Вернуть как было»
+// убирает всё новое и возвращает старое. Хранится один последний откат на тип.
+function rollbackDir (profile, type) {
+  return path.join(instanceDir(profile, true), '.astra', `rollback-${type}`)
+}
+
+function readRollback (profile, type) {
+  try { return JSON.parse(fs.readFileSync(path.join(rollbackDir(profile, type), 'rollback.json'), 'utf8')) } catch { return null }
+}
+
+function rollbackInfo ({ profile, type = 'mod' }) {
+  profile = normalize(profile)
+  typeInfo(type)
+  const r = readRollback(profile, type)
+  return r ? { createdAt: r.createdAt, titles: r.titles || [], confirmed: !!r.confirmed } : null
+}
+
+// Обновление сразу нескольких файлов одним снимком для отката.
+async function updateMany ({ profile, type = 'mod', files = [] }, onStatus = () => {}) {
+  profile = normalize(profile)
+  const info = typeInfo(type)
+  const dir = subDir(profile, info.folder, true)
+  const rdir = rollbackDir(profile, type)
+  // Новый снимок собираем рядом и заменяем им старый, только если что-то обновилось:
+  // неудачная попытка не должна стирать прошлую точку отката.
+  const tdir = rdir + '.new'
+  fs.rmSync(tdir, { recursive: true, force: true })
+  fs.mkdirSync(path.join(tdir, 'files'), { recursive: true })
+  const metaBefore = readMeta(profile)
+  const saved = []
+  const added = new Set() // только файлы, которые записала эта установка
+  const ctx = {
+    added,
+    onReplace (full, { copy = false } = {}) {
+      const name = path.basename(full)
+      if (saved.includes(name)) return
+      if (copy) fs.copyFileSync(full, path.join(tdir, 'files', name))
+      else fs.renameSync(full, path.join(tdir, 'files', name))
+      saved.push(name)
+    }
+  }
+  const done = []
+  const errors = []
+  const titles = []
+  for (const file of files) {
+    const m = metaBefore[type][path.basename(String(file))]
+    try {
+      await updateOne({ profile, type, file }, onStatus, ctx)
+      done.push(file)
+      if (m && m.title) titles.push(m.title)
+    } catch (e) {
+      errors.push({ file, title: (m && m.title) || file, error: e.message })
+    }
+  }
+  if (done.length) {
+    // Файл, который был и до обновления (то же имя), не «новый» — его вернёт копия из saved.
+    const fresh = [...added].filter(f => !saved.includes(f) && !saved.includes(f + '.disabled'))
+    const savedMeta = {}
+    for (const f of saved) { const k = baseName(f); if (metaBefore[type][k]) savedMeta[k] = metaBefore[type][k] }
+    fs.writeFileSync(path.join(tdir, 'rollback.json'), JSON.stringify({ createdAt: Date.now(), type, added: fresh, saved, meta: savedMeta, titles, confirmed: false }, null, 2))
+    fs.rmSync(rdir, { recursive: true, force: true })
+    fs.renameSync(tdir, rdir)
+  } else {
+    // Ничего не обновилось: всё, что успели убрать, возвращаем на место.
+    for (const name of saved) {
+      const src = path.join(tdir, 'files', name)
+      if (fs.existsSync(src) && !fs.existsSync(path.join(dir, name))) fs.renameSync(src, path.join(dir, name))
+    }
+    fs.rmSync(tdir, { recursive: true, force: true })
+  }
+  return { updated: done.length, errors, titles }
+}
+
+function rollback ({ profile, type = 'mod' }) {
+  profile = normalize(profile)
+  const info = typeInfo(type)
+  const r = readRollback(profile, type)
+  if (!r) throw new Error('Откатывать нечего')
+  const dir = subDir(profile, info.folder, true)
+  const rdir = rollbackDir(profile, type)
+  const meta = readMeta(profile)
+  // Файлы, которые появились при обновлении, убираем (вместе с .disabled-вариантом)…
+  for (const f of r.added || []) {
+    const name = baseName(path.basename(f))
+    for (const x of [name, name + '.disabled']) fs.rmSync(inside(dir, x), { force: true })
+    delete meta[type][name]
+  }
+  // …и возвращаем заменённые.
+  for (const f of r.saved || []) {
+    const name = path.basename(f)
+    const src = path.join(rdir, 'files', name)
+    if (fs.existsSync(src)) fs.renameSync(src, inside(dir, name))
+  }
+  Object.assign(meta[type], r.meta || {})
+  writeMeta(profile, meta)
+  fs.rmSync(rdir, { recursive: true, force: true })
+  return { titles: r.titles || [] }
+}
+
+// Игра после обновления нормально отработала — кнопку отката в окне вылета больше не предлагаем.
+function confirmRollback (profile) {
+  try {
+    profile = normalize(profile)
+    for (const type of Object.keys(TYPES)) {
+      const file = path.join(rollbackDir(profile, type), 'rollback.json')
+      const r = readRollback(profile, type)
+      if (r && !r.confirmed) { r.confirmed = true; fs.writeFileSync(file, JSON.stringify(r, null, 2)) }
+    }
+  } catch {}
+}
+
+// ---------- установка в отдельную папку ----------
+// Для «Играть с другом» в обычной версии: мод и его обязательные зависимости
+// кладутся в свою папку и подключаются к игре через -Dfabric.addMods.
+async function installInto (dir, projectId, gameVersion, onStatus = () => {}, seen = new Set()) {
+  if (!/^[A-Za-z0-9]{6,12}$/.test(String(projectId)) || seen.has(projectId)) return []
+  seen.add(projectId)
+  fs.mkdirSync(dir, { recursive: true })
+  const metaFile = path.join(dir, 'astra-mods.json')
+  let meta = {}
+  try { meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) } catch {}
+  const version = await latestVersion(projectId, { version: gameVersion }, 'mod')
+  if (!version) return null
+  const file = version.files.find(f => f.primary) || version.files[0]
+  const fileName = safeFileName(file.filename, 'mod')
+  const target = inside(dir, fileName)
+  if (!(meta[projectId] && meta[projectId].file === fileName && fs.existsSync(target))) {
+    onStatus({ stage: `Скачиваю ${fileName}` })
+    await download(file.url, target, { group: 'game', hash: file.hashes && file.hashes.sha512 ? { algo: 'sha512', value: file.hashes.sha512 } : null })
+    if (meta[projectId] && meta[projectId].file !== fileName) fs.rmSync(path.join(dir, path.basename(meta[projectId].file)), { force: true })
+    meta[projectId] = { file: fileName, versionId: version.id }
+    fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2))
+  }
+  const out = [fileName]
+  for (const dep of version.dependencies || []) {
+    if (dep.dependency_type !== 'required' || !dep.project_id) continue
+    const sub = await installInto(dir, dep.project_id, gameVersion, onStatus, seen)
+    if (sub) out.push(...sub)
+  }
+  return out
+}
+
 function updateQueued (params, onStatus) {
   const run = queue.then(() => updateOne(params, onStatus))
   queue = run.catch(() => {})
   return run
 }
 
-module.exports = { search, install: installQueued, update: updateQueued, checkUpdates, list, toggle, remove, installedIds }
+function updateManyQueued (params, onStatus) {
+  const run = queue.then(() => updateMany(params, onStatus))
+  queue = run.catch(() => {})
+  return run
+}
+
+module.exports = {
+  search, install: installQueued, update: updateQueued, updateMany: updateManyQueued, checkUpdates, list, toggle, remove, installedIds,
+  rollbackInfo, rollback, confirmRollback, installInto, latestVersion, readMeta, TYPES
+}

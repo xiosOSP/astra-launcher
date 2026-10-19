@@ -176,7 +176,7 @@ function paintUpdateSlot (st) {
   const slot = $('#update-slot')
   if (!slot) return
   if (['available', 'downloading', 'ready'].includes(upd.status)) {
-    const text = upd.status === 'downloading' ? `Скачиваю ${upd.version || ''} · ${upd.percent || 0}%` : upd.status === 'ready' ? 'Обновление готово' : `Доступна версия ${upd.version}`
+    const text = upd.status === 'downloading' ? `Скачиваю ${upd.versionLabel || upd.version || ''} · ${upd.percent || 0}%` : upd.status === 'ready' ? 'Обновление готово' : `Доступна версия ${upd.versionLabel || upd.version}`
     slot.innerHTML = `<button class="update-badge" id="upd-open">${icon('circle-arrow-up', 18)}<span><b>${esc(text)}</b><small>${upd.status === 'ready' ? 'Нажми, чтобы перезапустить' : 'Нажми, чтобы посмотреть'}</small></span></button>`
     $('#upd-open', slot).onclick = openUpdateModal
   } else {
@@ -189,7 +189,7 @@ export function getUpdateState () { return upd }
 
 export function openUpdateModal () {
   const m = modal(`
-    <h2>AstraLauncher ${esc(upd.version || '')}</h2>
+    <h2>AstraLauncher ${esc(upd.versionLabel || upd.version || '')}</h2>
     <p class="hint" style="margin-top:-4px">Сейчас у тебя ${esc(state.info.version)}</p>
     <pre class="notes" id="upd-notes"></pre>
     <div class="upd-progress" id="upd-prog" hidden><div class="bar"><i></i></div><span></span></div>
@@ -236,23 +236,33 @@ export function showCrash (st) {
   const p = st.profile
   const actions = []
   if (c.actions.includes('settings')) actions.push(`<button class="btn" data-a="settings">${icon('settings', 16)}Открыть настройки</button>`)
+  if (c.actions.includes('rollback')) actions.push(`<button class="btn primary" data-a="rollback">${icon('undo-2', 16)}Вернуть моды до обновления</button>`)
   if (c.actions.includes('mods')) actions.push(`<button class="btn" data-a="mods">${icon('puzzle', 16)}Открыть моды</button>`)
   if (c.reportFile) actions.push(`<button class="btn ghost" data-a="report">${icon('bug', 16)}Отчёт о вылете</button>`)
   actions.push(`<button class="btn ghost" data-a="log">${icon('terminal', 16)}Лог</button>`)
   const m = modal(`
     <div class="crash-head">${icon('triangle-alert', 28)}<div><h2>${esc(c.title)}</h2><p>${esc(c.text)}</p></div></div>
+    ${c.rollback ? `<p class="hint">Перед этим запуском ты обновил моды${c.rollback.titles && c.rollback.titles.length ? ` (${esc(c.rollback.titles.slice(0, 4).join(', '))}${c.rollback.titles.length > 4 ? ' и другие' : ''})` : ''}. Если раньше всё работало — верни их как было.</p>` : ''}
     ${c.details && c.details.length ? `<ul class="crash-details">${c.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
-    <div class="modal-actions wrap">${actions.join('')}<button class="btn primary" data-close>Понятно</button></div>`)
+    <div class="modal-actions wrap">${actions.join('')}<button class="btn ${c.actions.includes('rollback') ? '' : 'primary'}" data-close>Понятно</button></div>`)
   m.el.addEventListener('click', async e => {
     const b = e.target.closest('[data-a]')
     if (!b) return
     const a = b.dataset.a
     if (a === 'report') return api.shell.openReport(c.reportFile).catch(err => toast(err.message, 'err'))
+    if (a === 'rollback') {
+      try {
+        await api.content.rollback({ profile: p, type: 'mod' })
+        toast('Моды возвращены как были до обновления. Можно играть!')
+        m.close()
+      } catch (err) { toast(err.message, 'err') }
+      return
+    }
     m.close()
     if (a === 'settings') go('settings')
     if (a === 'mods') {
       if (p && p.version) await (await import('../store.js')).selectProfile(p)
-      go('mods', { tab: 'installed' })
+      go('mods', { sub: 'mod', tab: 'installed' })
     }
     if (a === 'log') document.getElementById('btn-log').click()
   })

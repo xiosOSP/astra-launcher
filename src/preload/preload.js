@@ -1,5 +1,5 @@
 'use strict'
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 // Узкий API для интерфейса. Каждый вызов возвращает данные или бросает понятную ошибку.
 async function call (channel, ...args) {
@@ -29,7 +29,9 @@ contextBridge.exposeInMainWorld('astra', {
     toggle: params => call('content:toggle', params),
     remove: params => call('content:remove', params),
     checkUpdates: params => call('content:checkUpdates', params),
-    update: params => call('content:update', params)
+    update: params => call('content:update', params),
+    rollbackInfo: params => call('content:rollbackInfo', params),
+    rollback: params => call('content:rollback', params)
   },
   boost: profile => call('boost', profile),
   update: {
@@ -53,8 +55,22 @@ contextBridge.exposeInMainWorld('astra', {
     list: () => call('packs:list'),
     install: id => call('packs:install', id),
     checkUpdate: id => call('packs:checkUpdate', id),
-    remove: id => call('packs:remove', id)
+    remove: id => call('packs:remove', id),
+    exportPack: (profile, name) => call('packs:export', { profile, name }),
+    importFile: file => call('packs:import', file || null)
   },
+  perf: profile => call('perf:info', profile),
+  storage: {
+    scan: () => call('storage:scan'),
+    clean: kinds => call('storage:clean', kinds)
+  },
+  migrate: {
+    detect: dir => call('migrate:detect', dir || null),
+    run: params => call('migrate:run', params)
+  },
+  muteWarning: id => call('warnings:mute', id),
+  // Путь к файлу, брошенному в окно (перетаскивание сборки .mrpack).
+  pathForFile: file => { try { return webUtils.getPathForFile(file) } catch { return '' } },
   worlds: {
     list: profile => call('worlds:list', profile),
     backup: (profile, world) => call('worlds:backup', { profile, world }),
@@ -71,7 +87,8 @@ contextBridge.exposeInMainWorld('astra', {
     launch: (profile, opts) => call('game:launch', profile, opts || {}),
     stop: () => call('game:stop'),
     log: () => call('game:log'),
-    status: () => call('game:status')
+    status: () => call('game:status'),
+    precheck: profile => call('game:precheck', profile)
   },
   shell: {
     openFolder: (kind, profile) => call('shell:openFolder', { kind, profile }),

@@ -2,7 +2,8 @@
 import { icon } from '../ui/icons.js'
 import { esc, $, $$, fmtNum, fmtSize, plural, projectIcon, toast, modal, confirmDialog } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
-import { state, on, api, profile, profileLabel, versionInfo, selectProfile, isGameBusy, sameProfile } from '../store.js'
+import { state, on, api, profile, profileLabel, versionInfo, selectProfile, isGameBusy, sameProfile, packInfo } from '../store.js'
+import { shareDialog } from '../ui/tools.js'
 
 // Моды и шейдеры работают только через Fabric (шейдеры — через мод Iris).
 const needsFabric = type => type === 'mod' || type === 'shader'
@@ -133,7 +134,7 @@ export function openProject (hit, type) {
 // ---------- страница ----------
 export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
   const T = TEXT[type]
-  const ui = { updates: null, checking: false, updatingAll: false, tab, query: '', sort: 'downloads', offset: 0, hits: [], total: 0, loading: false, error: null, installed: [], seq: 0 }
+  const ui = { rollback: null, updates: null, checking: false, updatingAll: false, tab, query: '', sort: 'downloads', offset: 0, hits: [], total: 0, loading: false, error: null, installed: [], seq: 0 }
   let searchTimer = 0
 
   root.innerHTML = `
@@ -147,6 +148,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
           <button data-tab="catalog">Каталог</button>
           <button data-tab="installed">Установленные<span class="n" id="c-count"></span></button>
         </div>
+        <button class="btn" id="c-share" title="Версия, моды, ресурспаки и шейдеры одним файлом — для друга">${icon('share-2', 16)}Поделиться</button>
         <button class="btn btn-icon" id="c-folder" title="Открыть папку">${icon('folder-open', 18)}</button>
       </div>
     </div>
@@ -256,8 +258,10 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
         : n
           ? `<button class="btn sm primary" data-update-all>${icon('circle-arrow-up', 15)}Обновить всё (${n})</button>`
           : `<button class="btn sm" data-check-updates>${icon('refresh-cw', 15)}${ui.updates ? 'Всё обновлено' : 'Проверить обновления'}</button>`
+    const rb = ui.rollback && !ui.updatingAll
+      ? `<button class="btn sm" data-rollback title="Вернуть файлы, которые были до обновления ${esc(new Date(ui.rollback.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}">${icon('undo-2', 15)}Вернуть как было</button>` : ''
     body.innerHTML = `
-      <div class="toolbar"><span class="hint grow">${ui.installed.length} ${plural(ui.installed.length, T.one, T.few, T.many)}${off ? `, выключено: ${off}` : ''}${where}</span>${updBtn}</div>
+      <div class="toolbar"><span class="hint grow">${ui.installed.length} ${plural(ui.installed.length, T.one, T.few, T.many)}${off ? `, выключено: ${off}` : ''}${where}</span>${rb}${updBtn}</div>
       <div class="list">${ui.installed.map(installedRow).join('')}</div>`
   }
 
@@ -297,6 +301,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
     const p = profile()
     if (!p.version || (needsFabric(type) && p.loader !== 'fabric')) { ui.installed = []; return }
     try { ui.installed = await api.content.list({ profile: p, type }) } catch (e) { ui.installed = []; toast(e.message, 'err') }
+    try { ui.rollback = await api.content.rollbackInfo({ profile: p, type }) } catch { ui.rollback = null }
     await loadInstalledIds(type, p)
   }
 
@@ -309,6 +314,13 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
       if (ui.tab === 'installed') await loadInstalled()
       paint()
       if (ui.tab === 'catalog' && !ui.hits.length && !ui.loading) search(true)
+      return
+    }
+    if (t.closest('#c-share')) {
+      const p = profile()
+      if (!p.version) return
+      const pk = p.pack ? packInfo(p.pack) : null
+      shareDialog(p, pk ? pk.name : '')
       return
     }
     if (t.closest('#c-folder')) {
@@ -344,13 +356,27 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
       if (profileRunning()) { toast('Сначала закрой игру — эта сборка сейчас запущена', 'err'); return }
       ui.updatingAll = true; paintInstalled()
       let ok = 0
-      for (const file of Object.keys(ui.updates || {})) {
-        try { await api.content.update({ profile: profile(), type, file }); ok++ } catch (err) { toast(`${ui.updates[file].title}: ${err.message}`, 'err', 6000) }
-      }
+      try {
+        const res = await api.content.update({ profile: profile(), type, files: Object.keys(ui.updates || {}) })
+        ok = res.updated
+        res.errors.forEach(er => toast(`${er.title}: ${er.error}`, 'err', 6000))
+      } catch (err) { toast(err.message, 'err', 6000) }
       ui.updatingAll = false
       ui.updates = {}
       await loadInstalled(); paint()
-      if (ok) toast(`Обновлено: ${ok}`)
+      if (ok) toast(`Обновлено: ${ok}. Если что-то сломалось — «Вернуть как было»`)
+      return
+    }
+    if (t.closest('[data-rollback]')) {
+      if (profileRunning()) { toast('Сначала закрой игру — эта сборка сейчас запущена', 'err'); return }
+      const ok = await confirmDialog({ title: 'Вернуть как было?', text: `Обновлённые файлы заменятся теми, что были до обновления${ui.rollback.titles.length ? ': ' + ui.rollback.titles.slice(0, 6).join(', ') + (ui.rollback.titles.length > 6 ? ' и другие' : '') : ''}.`, ok: 'Вернуть' })
+      if (!ok) return
+      try {
+        await api.content.rollback({ profile: profile(), type })
+        ui.updates = null
+        toast('Вернул файлы, которые были до обновления')
+      } catch (err) { toast(err.message, 'err') }
+      await loadInstalled(); paint()
       return
     }
     const up = t.closest('[data-update]')

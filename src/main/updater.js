@@ -14,17 +14,7 @@ const { GITHUB_REPO: REPO } = require('./config')
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
 
-function parseVer (v) {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || ''))
-  return m ? m.slice(1).map(Number) : null
-}
-
-function newer (a, b) {
-  const x = parseVer(a); const y = parseVer(b)
-  if (!x || !y) return false
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]
-  return false
-}
+const { newer, label, FILE_RE } = require('./appversion')
 
 // Путь к запущенному portable-файлу (его выставляет обёртка electron-builder).
 function portableExe () {
@@ -64,13 +54,13 @@ async function check () {
     let rel
     if (MOCK) {
       if (process.env.ASTRA_MOCK_UPDATE !== '1') { set({ status: 'none', checkedAt: Date.now() }); return state }
-      rel = { tag_name: 'v9.9.9', body: '## Что нового\n- **Проверка** обновлений\n- Мелкие исправления', assets: [{ name: 'update.json', browser_download_url: 'https://github.com/mock/update.json' }] }
+      rel = { tag_name: process.env.ASTRA_MOCK_UPDATE_TAG || 'v0.2.0-v1', body: '## Что нового\n- **Проверка** обновлений\n- Мелкие исправления', assets: [{ name: 'update.json', browser_download_url: 'https://github.com/mock/update.json' }] }
     } else {
       rel = await fetchJson(RELEASES_API)
     }
     const version = String(rel.tag_name || '').replace(/^v/, '')
     if (!newer(version, app.getVersion())) {
-      set({ status: 'none', checkedAt: Date.now(), latest: version || app.getVersion() })
+      set({ status: 'none', checkedAt: Date.now(), latest: label(version || app.getVersion()) })
       return state
     }
     const manifestAsset = (rel.assets || []).find(a => a.name === 'update.json')
@@ -80,7 +70,8 @@ async function check () {
       : await fetchJson(manifestAsset.browser_download_url)
     const exeAsset = (rel.assets || []).find(a => a.name === manifest.file)
     if (!MOCK && !exeAsset) throw new Error('В релизе нет файла лаунчера')
-    if (!/^AstraLauncher-Portable-[\d.]+\.exe$/.test(manifest.file)) throw new Error('Неожиданное имя файла обновления')
+    if (!FILE_RE.test(manifest.file)) throw new Error('Неожиданное имя файла обновления')
+    if (manifest.version && manifest.version !== version) throw new Error('Версия в update.json не совпадает с релизом')
     info = {
       version,
       notes: plainNotes(rel.body),
@@ -89,7 +80,7 @@ async function check () {
       sha256: manifest.sha256 || null,
       url: exeAsset ? exeAsset.browser_download_url : 'https://github.com/mock/file.exe'
     }
-    set({ status: 'available', version, notes: info.notes, size: info.size, canInstall: !!portableExe() || MOCK, checkedAt: Date.now() })
+    set({ status: 'available', version, versionLabel: label(version), notes: info.notes, size: info.size, canInstall: !!portableExe() || MOCK, checkedAt: Date.now() })
   } catch (e) {
     set({ status: 'error', error: e.message, checkedAt: Date.now() })
   }

@@ -44,4 +44,12 @@ function inside (base, ...parts) {
   return target
 }
 
-module.exports = { defaultGameDir, settingsFile, safeName, inside, hasNonAscii }
+// Имя мира — это имя папки, которое дала игра: в нём бывают точки и пробелы на конце.
+// Запрещаем только то, что делает из имени путь.
+function worldName (name) {
+  if (typeof name !== 'string' || !name.length || name.length > 255) throw new Error('Некорректное имя мира')
+  if (/[\\/\0]/.test(name) || name === '.' || name === '..') throw new Error('Некорректное имя мира')
+  return name
+}
+
+module.exports = { defaultGameDir, settingsFile, safeName, worldName, inside, hasNonAscii }

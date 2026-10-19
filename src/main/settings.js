@@ -28,6 +28,11 @@ function defaults () {
     servers: [],
     account: '',
     gameLanguage: 'ru_ru',
+    memoryMode: 'auto', // auto | manual
+    lightMode: 'auto', // auto | on | off — облегчённая графика для новых сборок
+    sharedControls: true, // общее управление, мышь и звук во всех версиях
+    muteWarnings: [], // предупреждения перед запуском, которые просили не показывать
+    migrationOffered: false, // предлагали ли перенести данные из TLauncher
     memoryGb: Math.min(Math.max(2, Math.floor(ram / 2)), 6),
     javaPath: '',
     gameDir: '',
@@ -82,6 +87,14 @@ function sanitize (raw) {
       .map(x => ({ name: String(x.name || x.address).trim().slice(0, 40) || x.address, address: x.address.trim() }))
       .slice(0, 30),
     memoryGb: clampInt(s.memoryGb, 1, Math.max(2, usableRamGb() - 1), d.memoryGb),
+    // Старые настройки без режима памяти: если память меняли руками — оставляем ручной режим.
+    memoryMode: ['auto', 'manual'].includes(s.memoryMode)
+      ? s.memoryMode
+      : (raw && raw.memoryGb !== undefined && Number(raw.memoryGb) !== d.memoryGb ? 'manual' : 'auto'),
+    lightMode: ['auto', 'on', 'off'].includes(s.lightMode) ? s.lightMode : 'auto',
+    sharedControls: s.sharedControls !== false,
+    muteWarnings: (Array.isArray(s.muteWarnings) ? s.muteWarnings : []).filter(x => typeof x === 'string' && x.length <= 200).slice(-100),
+    migrationOffered: !!s.migrationOffered,
     javaPath: typeof s.javaPath === 'string' ? s.javaPath.trim().slice(0, 500) : '',
     gameDir: typeof s.gameDir === 'string' ? s.gameDir.trim().slice(0, 500) : '',
     width: clampInt(s.width, 640, 7680, d.width),

@@ -5,7 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const yazl = require('yazl')
 const { instanceDir, subDir, instancesDir } = require('./profiles')
-const { inside, safeName } = require('./paths')
+const { inside, safeName, worldName } = require('./paths')
 
 const AUTO_MARK = ' (авто)'
 const PRE_MARK = ' (до восстановления)'
@@ -27,7 +27,7 @@ function dirSize (dir) {
 }
 
 function backupsDir (profile, world) {
-  return path.join(instanceDir(profile, true), 'backups', safeName(world))
+  return path.join(instanceDir(profile, true), 'backups', worldName(world))
 }
 
 function listBackups (profile, world) {
@@ -96,7 +96,7 @@ function zipFolder (src, dest) {
 
 async function backup (profile, world, { auto = false, pre = false } = {}) {
   const saves = subDir(profile, 'saves')
-  const src = inside(saves, safeName(world))
+  const src = inside(saves, worldName(world))
   if (!fs.existsSync(path.join(src, 'level.dat'))) throw new Error('Мир не найден')
   const dir = backupsDir(profile, world)
   fs.mkdirSync(dir, { recursive: true })
@@ -116,7 +116,7 @@ function removeBackup (profile, world, file) {
 async function restore (profile, world, file) {
   const extractZip = require('extract-zip')
   const saves = subDir(profile, 'saves')
-  const target = inside(saves, safeName(world))
+  const target = inside(saves, worldName(world))
   const zipFile = inside(backupsDir(profile, world), path.basename(String(file)))
   if (!fs.existsSync(zipFile)) throw new Error('Копия не найдена')
   if (fs.existsSync(path.join(target, 'level.dat'))) await backup(profile, world, { pre: true })
@@ -159,7 +159,7 @@ async function autoBackup (profile, keep = 5) {
 // Путь к картинке мира для протокола app://worlds/<сборка>/<мир>/icon.png
 function iconPath (instance, world) {
   safeName(instance)
-  return inside(path.join(instancesDir(), instance, 'saves'), safeName(world), 'icon.png')
+  return inside(path.join(instancesDir(), instance, 'saves'), worldName(world), 'icon.png')
 }
 
 module.exports = { list, backup, restore, removeBackup, autoBackup, iconPath, backupsDir }

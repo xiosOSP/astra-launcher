@@ -22,6 +22,10 @@ const discord = require('./discord')
 const accounts = require('./accounts')
 const authlib = require('./authlib')
 const language = require('./language')
+const perf = require('./perf')
+const sharedopts = require('./sharedopts')
+const friend = require('./friend')
+const content = require('./content')
 
 // Java мы проверяем сами (javaw.exe ничего не печатает в -version, из-за чего MCLC падает).
 Handler.prototype.checkJava = function () { return Promise.resolve({ run: true }) }
@@ -62,6 +66,16 @@ function preferJavaw (p) {
   return fs.existsSync(w) ? w : p
 }
 
+// Как версия хранит клавиши в options.txt: числами (до 1.13) или именами.
+function keyStyle (v) {
+  const m = /^1\.(\d+)/.exec(v)
+  if (m) return Number(m[1]) >= 13 ? 'new' : 'old'
+  if (/^[abc]\d|^rd-|^inf-/.test(v)) return 'old'
+  const w = /^(\d{2})w\d{2}/.exec(v)
+  if (w) return Number(w[1]) >= 17 ? 'new' : 'old'
+  return 'new'
+}
+
 function decodeXml (s) {
   return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
 }
@@ -84,7 +98,7 @@ class Game {
   setHooks (hooks) { Object.assign(this.hooks, hooks) }
 
   status (patch = {}) {
-    this.lastStatus = { state: this.state, profile: this.profile, ...patch }
+    this.lastStatus = { state: this.state, profile: this.profile, friend: !!this.friendMode, friendAddress: this.friendAddress || null, ...patch }
     this.hooks.send('game:status', this.lastStatus)
   }
 
@@ -144,7 +158,7 @@ class Game {
     if (this.cancelled) throw new Error('Запуск отменён')
   }
 
-  async launch (rawProfile, { server = null } = {}) {
+  async launch (rawProfile, { server = null, friend: withFriend = false, world = null } = {}) {
     if (this.state !== 'idle') throw new Error('Игра уже запускается или запущена')
     const profile = normalize(rawProfile)
     const s = settings.load()
@@ -160,12 +174,26 @@ class Game {
     this.log = []
     this.xmlBuf = ''
     this.progress.reset()
+    this.friendMode = !!withFriend
+    this.keysSynced = false
+    this.friendAddress = null
     if (server) this.pushLog(`[Astra] Сразу на сервер ${server}`)
     this.pushLog(`[Astra] Запуск ${profile.pack ? 'сборки ' + profile.pack + ', ' : ''}${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.account ? 'аккаунт Ely.by' : s.nickname}`)
 
     try {
       this.progress.setStage('Готовлю запуск')
       const vmeta = await versions.getVersionMeta(profile.version)
+      this.checkCancel()
+
+      // Игра с другом: мод e4mc. Обычная версия на этот запуск идёт через Fabric.
+      let loader = profile.loader
+      let addMods = null
+      if (withFriend) {
+        this.progress.setStage('Готовлю игру с другом')
+        addMods = (await friend.prepare(profile, st => st.stage && this.progress.setStage(st.stage))).addMods
+        if (addMods) loader = 'fabric'
+        this.pushLog('[Astra] Игра с другом: мод e4mc' + (addMods ? ' подключён из ' + addMods : ' есть в сборке'))
+      }
       this.checkCancel()
 
       // Java
@@ -185,7 +213,7 @@ class Game {
       // Fabric
       let custom
       let fabricJson = null
-      if (profile.loader === 'fabric') {
+      if (loader === 'fabric') {
         // Сборка модов может требовать свою версию загрузчика Fabric.
         const pack = profile.pack ? modpacks.readPackMeta(profile.pack) : null
         if (profile.pack && !pack) throw new Error('Сборка не найдена — установи её заново в разделе «Сборки»')
@@ -219,11 +247,26 @@ class Game {
       if (!javaPath) javaPath = installedJava
       this.pushLog(`[Astra] Java: ${javaPath}`)
 
-      // Язык игры (по умолчанию русский) — один раз для каждой сборки.
+      // Настройки игры в options.txt: облегчённая графика для новой сборки на слабом ПК,
+      // язык (по умолчанию русский), общее управление для всех версий.
+      const instDirEarly = instanceDir(profile, true)
       try {
-        const code = language.apply(instanceDir(profile, true), s.gameLanguage, planned.langStyle)
+        if (await perf.lightWanted(s) && perf.applyLight(instDirEarly, profile.version)) this.pushLog('[Astra] Новая сборка: облегчённые настройки графики')
+      } catch (e) { this.pushLog('[Astra] Не удалось применить облегчённые настройки: ' + e.message) }
+      try {
+        const code = language.apply(instDirEarly, s.gameLanguage, planned.langStyle)
         if (code) this.pushLog(`[Astra] Язык игры: ${code}`)
       } catch (e) { this.pushLog('[Astra] Не удалось выставить язык игры: ' + e.message) }
+      if (s.sharedControls) {
+        try {
+          const r = sharedopts.apply(instDirEarly, keyStyle(profile.version))
+          this.keysSynced = r.keys
+          if (r.changed) this.pushLog(`[Astra] Общее управление: обновлено настроек — ${r.changed}`)
+        } catch (e) { this.pushLog('[Astra] Не удалось применить общее управление: ' + e.message) }
+      }
+      const mem = perf.memoryFor(profile, instDirEarly, s)
+      this.memoryGb = mem.gb
+      this.pushLog(`[Astra] Память: ${mem.gb} ГБ${mem.auto ? ' (подобрано автоматически)' : ''}`)
 
       // Запуск
       this.state = 'starting'
@@ -253,7 +296,7 @@ class Game {
               user_properties: '{}',
               meta: { type: 'mojang', demo: false }
             },
-        memory: { max: `${s.memoryGb}G`, min: `${Math.min(1, s.memoryGb)}G` },
+        memory: { max: `${mem.gb}G`, min: `${Math.min(1, mem.gb)}G` },
         javaPath,
         window: s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height },
         customArgs: [
@@ -264,11 +307,15 @@ class Game {
           `-Dorg.lwjgl.system.SharedLibraryExtractPath=${extractDir}`,
           `-Djna.tmpdir=${extractDir}`,
           `-Dio.netty.native.workdir=${extractDir}`,
+          ...(addMods ? [`-Dfabric.addMods=${addMods}`] : []),
+          ...perf.gcArgs(s.jvmArgs),
           ...splitArgs(s.jvmArgs)
         ],
         astraVerified: true,
         // Сразу зайти на сервер: в 1.20+ через quickPlay, в старых версиях через --server/--port.
         ...(server ? { quickPlay: { type: JSON.stringify(vmeta.arguments || {}).includes('quickPlayMultiplayer') ? 'multiplayer' : 'legacy', identifier: server.includes(':') ? server : server + ':25565' } } : {}),
+        // Сразу в мир (1.20+). В старых версиях мир выбирают в меню игры.
+        ...(!server && world && JSON.stringify(vmeta.arguments || {}).includes('quickPlaySingleplayer') ? { quickPlay: { type: 'singleplayer', identifier: world } } : {}),
         overrides: {
           gameDirectory: instDir,
           cwd: instDir, // логи игры попадут в папку сборки
@@ -301,6 +348,15 @@ class Game {
 
   detectWindow (text) {
     if (this.state === 'starting' && WINDOW_READY.test(text)) this.markRunning()
+    if (this.friendMode && this.state !== 'idle') {
+      const addr = friend.findAddress(text)
+      if (addr && addr !== this.friendAddress) {
+        this.friendAddress = addr
+        this.pushLog(`[Astra] Адрес для друга: ${addr}`)
+        this.status({ stage: 'Игра запущена' })
+        if (this.hooks.onFriendAddress) this.hooks.onFriendAddress(addr)
+      }
+    }
   }
 
   markRunning () {
@@ -329,14 +385,25 @@ class Game {
       stats.record(profile, { playedMs: Date.now() - this.runStart })
     }
     const played = !!this.runStart
+    const playedMs = this.runStart ? Date.now() - this.runStart : 0
     this.runStart = null
+    this.friendAddress = null
+    // Общее управление: запоминаем клавиши, мышь и звук из этой сборки.
+    if (played && settings.load().sharedControls) {
+      try { sharedopts.capture(instanceDir(profile), { keys: !!this.keysSynced }) } catch (e) { this.pushLog('[Astra] Не удалось сохранить общее управление: ' + e.message) }
+    }
+    // Игра после обновления модов проработала минуту и закрылась сама — значит, всё в порядке.
+    if (!failed && playedMs > 60000) content.confirmRollback(profile)
     try { discord.clear() } catch {}
     let patch = this.cancelled ? { info: 'Запуск отменён.' } : {}
     if (failed) {
       const s = settings.load()
       let analysis = null
       try {
-        analysis = crash.analyze({ lines: this.log, instDir: instanceDir(profile), startedAt: this.startedAt, memoryGb: s.memoryGb, code })
+        analysis = crash.analyze({ lines: this.log, instDir: instanceDir(profile), startedAt: this.startedAt, memoryGb: this.memoryGb || s.memoryGb, code })
+        // Игра упала после обновления модов — предложим вернуть как было.
+        const rb = analysis && content.rollbackInfo({ profile, type: 'mod' })
+        if (rb && !rb.confirmed) { analysis.actions = [...analysis.actions, 'rollback']; analysis.rollback = rb }
       } catch (e) { this.pushLog('[Astra] Не удалось разобрать вылет: ' + e.message) }
       const what = phase === 'running' ? 'Игра закрылась с ошибкой' : 'Игра не смогла запуститься'
       patch = { error: analysis ? `${what}: ${analysis.title.toLowerCase()}` : `${what} (код ${code}). Открой лог — там причина.`, crashed: true, crash: analysis }
@@ -370,6 +437,10 @@ class Game {
     await new Promise(r => setTimeout(r, 1500))
     if (this.cancelled || id !== this.launchId) return true
     this.pushGameOutput('<log4j:Event logger="bib" timestamp="1" level="INFO" thread="main">\n<log4j:Message><![CDATA[Setting user: ' + settings.load().nickname + ']]></log4j:Message>\n</log4j:Event>\n')
+    // Игра с другом: e4mc пишет адрес в чат.
+    if (this.friendMode) {
+      setTimeout(() => { if (id === this.launchId && this.state !== 'idle') this.pushGameOutput('[Render thread/INFO]: [System] [CHAT] Local game hosted on port 51234\n[Render thread/INFO]: [System] [CHAT] e4mc: domain assigned: quiet-river-4821.eu.e4mc.link (click to copy)\n') }, 1500)
+    }
     // ASTRA_MOCK_CRASH=1 — имитация вылета из-за недостающего мода.
     if (process.env.ASTRA_MOCK_CRASH === '1') {
       setTimeout(() => {

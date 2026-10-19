@@ -883,3 +883,68 @@ input[type="range"].range { width: 100%; appearance: none; background: none; hei
 /* Лицо скина: квадрат 8×8 начиная с (8,8) на развёртке 64×64 */
 .skin-head img { position: absolute; width: 800%; height: auto; left: -100%; top: -100%; image-rendering: pixelated; max-width: none; }
 .ely-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px; font-size: 10.5px; font-weight: 800; color: #9be7b4; background: rgba(74, 222, 128, .12); }
+
+/* ---------- 0.2.0: разделы с вкладками ---------- */
+.section-tabs { display: flex; gap: 26px; align-items: baseline; margin: 8px 0 0; flex-wrap: wrap; }
+.section-tabs button {
+  border: 0; background: none; padding: 0 0 8px; cursor: pointer;
+  font: 400 28px/1.1 var(--font-display); color: var(--muted);
+  border-bottom: 3px solid transparent; transition: color .15s, border-color .15s;
+}
+.section-tabs button:hover { color: var(--text-2); }
+.section-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.subpage .page-head { margin-top: 10px; }
+.subpage .page-title { display: none; }
+.subpage .page-sub { margin-top: 0; }
+
+/* ---------- 0.2.0: окна новых функций ---------- */
+.modal.wide { width: min(680px, 100%); }
+.checks { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.check { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); transition: opacity .2s; }
+.check.err { border-color: rgba(224, 38, 43, .6); }
+.check.done { opacity: .6; }
+.check-title { display: flex; gap: 8px; align-items: center; }
+.check-title svg { color: var(--warn); flex: none; }
+.check.err .check-title svg { color: #ff7a70; }
+.check p { margin: 6px 0 10px; font-size: 13px; }
+.check-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.check-actions .section-link { margin: 0 0 0 auto; display: inline-flex; }
+.ok-line { display: inline-flex; gap: 6px; align-items: center; color: var(--ok); font-weight: 700; font-size: 13px; }
+.steps { margin: 16px 0 14px; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; color: var(--text-2); line-height: 1.5; }
+.steps b { color: var(--text); }
+
+.friend-addr {
+  display: inline-flex; align-items: center; gap: 10px; margin-top: 8px; padding: 4px 5px 4px 10px;
+  border: 1px solid rgba(74, 222, 128, .35); border-radius: 10px; background: rgba(15, 8, 9, .75);
+  font-size: 13px; color: var(--text-2); backdrop-filter: blur(4px);
+}
+.friend-addr > svg { color: var(--ok); }
+.friend-addr b { color: var(--text); user-select: all; }
+.friend-addr .btn.sm { height: 28px; }
+.friend-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; margin-left: 8px;
+  border-radius: 15px; border: 1px solid rgba(74, 222, 128, .4); background: rgba(74, 222, 128, .08);
+  color: var(--ok); font: 600 12.5px/1 var(--font-body); cursor: pointer; -webkit-app-region: no-drag;
+}
+.friend-chip:hover { background: rgba(74, 222, 128, .16); }
+.friend-chip span { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mg-worlds { display: flex; flex-direction: column; gap: 6px; max-height: 230px; overflow-y: auto; padding-right: 4px; }
+.mg-world { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); cursor: pointer; }
+.mg-world .row-main { display: flex; flex-direction: column; }
+.mg-world small { color: var(--muted); font-size: 12px; }
+.mg-extra { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--text-2); }
+.mg-extra label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.mg-world input, .mg-extra input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.st-group { margin-top: 18px; }
+.st-group:first-child { margin-top: 12px; }
+.st-head { display: flex; align-items: center; gap: 10px; }
+.st-head span { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+.st-head .btn { margin-left: auto; }
+.st-group .hint { margin: 4px 0 8px; }
+.st-lines { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 13px; color: var(--text-2); }
+.st-lines b { text-align: right; font-variant-numeric: tabular-nums; }
+.row.sm { padding: 7px 8px 7px 12px; min-height: 0; }
+.row.sm .row-title { font-size: 14px; }
+.subpage .page-head > div:first-child { flex: 1 1 320px; min-width: 0; }

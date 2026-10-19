@@ -3,6 +3,7 @@ import { icon } from './icons.js'
 import { esc, popupMenu, confirmDialog, toast, $ } from './dom.js'
 import { state, on, api, profile, profileLabel, versionInfo, selectProfile, sameProfile, packInfo } from '../store.js'
 import { go } from '../router.js'
+import { launchChecked, copyFriendAddress } from './tools.js'
 
 export const QUICK = ['1.20.1', '1.16.5', '1.12.2']
 
@@ -14,10 +15,13 @@ export function mountLaunch (root) {
       <button class="btn primary play" id="play"></button>
       <button class="version-btn" id="vbtn" aria-haspopup="menu" aria-expanded="false"></button>
     </div>
-    <div class="launch-stage" id="stage" aria-live="polite"></div>`
+    <div class="launch-stage" id="stage" aria-live="polite"></div>
+    <div class="friend-addr" id="friend-addr" hidden></div>`
   const play = $('#play', root)
   const vbtn = $('#vbtn', root)
   const stage = $('#stage', root)
+  const friendBox = $('#friend-addr', root)
+  let checking = false
 
   const SPIN = icon('loader-circle', 20).replace('<svg ', '<svg class="spin" ')
   let mode = ''
@@ -70,7 +74,10 @@ export function mountLaunch (root) {
       setStage('Запускаю игру', 'Окно игры откроется через несколько секунд')
     } else if (g.state === 'running') {
       setMode('running')
-      setStage(`Игра запущена: ${profileLabel(g.profile || p)}`)
+      setStage(`Игра запущена: ${profileLabel(g.profile || p)}`, g.friend && !g.friendAddress ? 'Открой мир для сети — адрес для друга появится здесь' : '')
+    } else if (checking) {
+      setMode('idle')
+      setStage('Проверяю компьютер и моды…')
     } else {
       setMode('idle')
       play.disabled = !p.version
@@ -87,6 +94,15 @@ export function mountLaunch (root) {
       }
     }
     if (g.state !== 'idle') play.disabled = false
+    if (checking) play.disabled = true
+
+    // Адрес для друга (мод e4mc написал его в чат игры).
+    const addr = g.state !== 'idle' && g.friendAddress
+    friendBox.hidden = !addr
+    if (addr && friendBox.dataset.addr !== addr) {
+      friendBox.dataset.addr = addr
+      friendBox.innerHTML = `${icon('users', 16)}<span>Адрес для друга: <b>${esc(addr)}</b></span><button class="btn sm" data-copy-addr>${icon('copy', 14)}Копировать</button>`
+    }
 
     const pk = p.pack ? packInfo(p.pack) : null
     const title = pk ? pk.name : (p.version || '…')
@@ -117,12 +133,19 @@ export function mountLaunch (root) {
     }
     if (g.state !== 'idle') return
     if (!state.settings.nickname) { toast('Сначала укажи ник в настройках', 'err'); return }
+    if (checking) return
+    checking = true
+    paint()
     try {
-      await api.game.launch(profile())
-    } catch { /* ошибку уже показал обработчик статуса */ }
+      await launchChecked(profile(), {}, () => { checking = false; paint() })
+    } finally {
+      checking = false
+      paint()
+    }
   })
 
   vbtn.addEventListener('click', () => openVersionMenu(vbtn))
+  friendBox.addEventListener('click', e => { if (e.target.closest('[data-copy-addr]')) copyFriendAddress() })
 
   paint()
   const off = on((_s, patch) => {

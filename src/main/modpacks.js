@@ -78,7 +78,7 @@ function list () {
     .map(m => {
       let mods = 0
       try { mods = fs.readdirSync(path.join(packDir(m.id), 'mods')).filter(f => f.endsWith('.jar')).length } catch {}
-      return { id: m.id, name: m.name, icon: m.icon, description: m.description, mcVersion: m.mcVersion, loaderVersion: m.loaderVersion, versionNumber: m.versionNumber, versionId: m.versionId, slug: m.slug, installedAt: m.installedAt, mods }
+      return { id: m.id, local: !!m.local, name: m.name, icon: m.icon, description: m.description, mcVersion: m.mcVersion, loaderVersion: m.loaderVersion, versionNumber: m.versionNumber, versionId: m.versionId, slug: m.slug, installedAt: m.installedAt, mods }
     })
     .sort((a, b) => (b.installedAt || 0) - (a.installedAt || 0))
 }
@@ -86,6 +86,7 @@ function list () {
 async function checkUpdate (id) {
   const m = readPackMeta(id)
   if (!m) throw new Error('Сборка не найдена')
+  if (m.local) return { available: false, local: true }
   const v = pickVersion(await fetchJson(`${API}/project/${id}/version?${new URLSearchParams({ loaders: JSON.stringify(['fabric']) })}`))
   return v && v.id !== m.versionId ? { available: true, versionNumber: v.version_number, mcVersion: (v.game_versions || [])[0] } : { available: false }
 }
@@ -115,43 +116,23 @@ function copyOverrides (src, dest, { keepUserFiles }) {
   return copied
 }
 
-/**
- * Установка или обновление сборки. onStatus({ stage, percent, detail }).
- * Возвращает профиль { version, loader: 'fabric', pack }.
- */
-async function install (projectId, onStatus = () => {}) {
-  if (!PACK_RE.test(String(projectId))) throw new Error('Некорректная сборка')
-  const progress = new Progress(onStatus)
-  progress.setStage('Готовлю сборку')
-
-  const project = await fetchJson(`${API}/project/${projectId}`)
-  const version = pickVersion(await fetchJson(`${API}/project/${projectId}/version?${new URLSearchParams({ loaders: JSON.stringify(['fabric']) })}`))
-  if (!version) throw new Error(`У «${project.title}» нет версии для Fabric`)
-  const file = version.files.find(f => f.primary) || version.files[0]
-  if (!file || !file.filename.endsWith('.mrpack')) throw new Error('В сборке нет файла .mrpack')
-
-  const dir = packDir(projectId)
-  const old = readPackMeta(projectId)
-  const work = path.join(instancesDir(), `.tmp-pack-${projectId}`)
-  fs.rmSync(work, { recursive: true, force: true })
-  fs.mkdirSync(work, { recursive: true })
+// Разбор и установка файла .mrpack в папку сборки id.
+// source: { project, version } для сборок из Modrinth или { local: true } для файла с диска.
+async function applyMrpack (id, mrpack, work, progress, source) {
+  const dir = packDir(id)
+  const old = readPackMeta(id)
+  const unpacked = path.join(work, 'x')
+  await require('extract-zip')(mrpack, { dir: path.resolve(unpacked) })
+  let index
+  try { index = JSON.parse(fs.readFileSync(path.join(unpacked, 'modrinth.index.json'), 'utf8')) } catch { throw new Error('Файл сборки повреждён: нет modrinth.index.json') }
+  const deps = index.dependencies || {}
+  if (index.game !== 'minecraft' || !deps.minecraft) throw new Error('Это не сборка для Minecraft')
+  if (!/^[\w.+-]{1,40}$/.test(String(deps.minecraft))) throw new Error('В сборке странная версия игры')
+  const other = ['forge', 'neoforge', 'quilt-loader'].find(k => deps[k])
+  if (other) throw new Error(`Сборка сделана под ${other === 'quilt-loader' ? 'Quilt' : other === 'neoforge' ? 'NeoForge' : 'Forge'} — такие лаунчер пока не ставит`)
 
   try {
-    // 1. Сам файл сборки
-    const mrpack = path.join(work, 'pack.mrpack')
-    await download(file.url, mrpack, {
-      group: 'mods',
-      hash: file.hashes && file.hashes.sha512 ? { algo: 'sha512', value: file.hashes.sha512 } : null
-    })
-    const unpacked = path.join(work, 'x')
-    await require('extract-zip')(mrpack, { dir: path.resolve(unpacked) })
-    let index
-    try { index = JSON.parse(fs.readFileSync(path.join(unpacked, 'modrinth.index.json'), 'utf8')) } catch { throw new Error('Файл сборки повреждён: нет modrinth.index.json') }
-    const deps = index.dependencies || {}
-    if (index.game !== 'minecraft' || !deps.minecraft) throw new Error('Это не сборка для Minecraft')
-    if (!deps['fabric-loader']) throw new Error('Сборка сделана не под Fabric — такие лаунчер пока не ставит')
-
-    // 2. Файлы модов: проверяем путь, адрес и хеш каждого
+    // 1. Файлы модов: проверяем путь, адрес и хеш каждого
     fs.mkdirSync(dir, { recursive: true })
     const jobs = []
     for (const f of index.files || []) {
@@ -201,7 +182,7 @@ async function install (projectId, onStatus = () => {}) {
     }))
     if (failed) throw failed
 
-    // 3. Убираем файлы старой версии сборки, которых нет в новой.
+    // 2. Убираем файлы старой версии сборки, которых нет в новой.
     const newSet = new Set(jobs.map(j => j.rel))
     if (old && Array.isArray(old.files)) {
       for (const rel of old.files) {
@@ -210,34 +191,86 @@ async function install (projectId, onStatus = () => {}) {
       }
     }
 
-    // 4. Настройки и конфиги сборки
+    // 3. Настройки и конфиги сборки
     progress.setStage('Копирую настройки сборки', true)
     const keep = !!old
     copyOverrides(path.join(unpacked, 'overrides'), dir, { keepUserFiles: keep })
     copyOverrides(path.join(unpacked, 'client-overrides'), dir, { keepUserFiles: keep })
 
+    const { project = {}, version = {} } = source
     const meta = {
-      id: projectId,
-      slug: project.slug,
-      name: index.name || project.title,
+      id,
+      local: !!source.local,
+      slug: project.slug || null,
+      name: String(index.name || project.title || 'Сборка').slice(0, 80),
       icon: project.icon_url || null,
-      description: project.description || '',
+      description: String(project.description || index.summary || '').slice(0, 300),
       mcVersion: deps.minecraft,
-      loaderVersion: deps['fabric-loader'],
-      versionId: version.id,
-      versionNumber: version.version_number,
+      loaderVersion: deps['fabric-loader'] || null,
+      versionId: version.id || null,
+      versionNumber: String(version.version_number || index.versionId || '1.0').slice(0, 40),
       files: [...newSet],
       installedAt: old ? old.installedAt : Date.now(),
       updatedAt: Date.now()
     }
-    fs.mkdirSync(path.dirname(metaFile(projectId)), { recursive: true })
-    fs.writeFileSync(metaFile(projectId), JSON.stringify(meta, null, 2))
+    fs.mkdirSync(path.dirname(metaFile(id)), { recursive: true })
+    fs.writeFileSync(metaFile(id), JSON.stringify(meta, null, 2))
     progress.complete(old ? 'Сборка обновлена' : 'Сборка установлена')
-    return { profile: { version: deps.minecraft, loader: 'fabric', pack: projectId }, name: meta.name, updated: !!old }
+    return { profile: { version: deps.minecraft, loader: 'fabric', pack: id }, name: meta.name, updated: !!old }
   } catch (e) {
     // Новая установка не удалась — не оставляем полупустую папку.
     if (!old) fs.rmSync(dir, { recursive: true, force: true })
     throw e
+  }
+}
+
+/**
+ * Установка или обновление сборки из Modrinth. onStatus({ stage, percent, detail }).
+ * Возвращает профиль { version, loader: 'fabric', pack }.
+ */
+async function install (projectId, onStatus = () => {}) {
+  if (!PACK_RE.test(String(projectId))) throw new Error('Некорректная сборка')
+  const progress = new Progress(onStatus)
+  progress.setStage('Готовлю сборку')
+
+  const project = await fetchJson(`${API}/project/${projectId}`)
+  const version = pickVersion(await fetchJson(`${API}/project/${projectId}/version?${new URLSearchParams({ loaders: JSON.stringify(['fabric']) })}`))
+  if (!version) throw new Error(`У «${project.title}» нет версии для Fabric`)
+  const file = version.files.find(f => f.primary) || version.files[0]
+  if (!file || !file.filename.endsWith('.mrpack')) throw new Error('В сборке нет файла .mrpack')
+
+  const work = path.join(instancesDir(), `.tmp-pack-${projectId}`)
+  fs.rmSync(work, { recursive: true, force: true })
+  fs.mkdirSync(work, { recursive: true })
+  try {
+    const mrpack = path.join(work, 'pack.mrpack')
+    await download(file.url, mrpack, {
+      group: 'mods',
+      hash: file.hashes && file.hashes.sha512 ? { algo: 'sha512', value: file.hashes.sha512 } : null
+    })
+    return await applyMrpack(projectId, mrpack, work, progress, { project, version })
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true })
+  }
+}
+
+// Сборка из файла .mrpack (например, от друга). Получает свой id вида L + 9 символов.
+async function importFile (file, onStatus = () => {}) {
+  const src = path.resolve(String(file))
+  if (!/\.mrpack$/i.test(src) || !fs.existsSync(src)) throw new Error('Нужен файл сборки .mrpack')
+  if (fs.statSync(src).size > 1024 ** 3) throw new Error('Файл сборки слишком большой')
+  const progress = new Progress(onStatus)
+  progress.setStage('Открываю файл сборки')
+  const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let id
+  do { id = 'L' + Array.from(crypto.randomBytes(9), b => abc[b % abc.length]).join('') } while (fs.existsSync(packDir(id)))
+  const work = path.join(instancesDir(), `.tmp-pack-${id}`)
+  fs.rmSync(work, { recursive: true, force: true })
+  fs.mkdirSync(work, { recursive: true })
+  try {
+    const copy = path.join(work, 'pack.mrpack')
+    fs.copyFileSync(src, copy)
+    return await applyMrpack(id, copy, work, progress, { local: true })
   } finally {
     fs.rmSync(work, { recursive: true, force: true })
   }
@@ -250,5 +283,11 @@ function installQueued (id, onStatus) {
   return run
 }
 
-module.exports = { search, list, install: installQueued, checkUpdate, remove, readPackMeta }
+function importQueued (file, onStatus) {
+  const run = queue.then(() => importFile(file, onStatus))
+  queue = run.catch(() => {})
+  return run
+}
+
+module.exports = { search, list, install: installQueued, importFile: importQueued, checkUpdate, remove, readPackMeta, packDir }
 

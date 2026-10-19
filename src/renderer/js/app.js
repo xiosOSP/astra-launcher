@@ -2,7 +2,7 @@ import { icon } from './ui/icons.js'
 import { esc, $, modal, toast } from './ui/dom.js'
 import { starSvg, avatarHtml } from './art/blocks.js'
 import { state, set, on, api, refreshVersions, refreshStats, refreshPacks, refreshAccounts, activeAccount, activeName, profileLabel } from './store.js'
-import { register, go, onRoute } from './router.js'
+import { register, go, onRoute, tabbed } from './router.js'
 import * as home from './pages/home.js'
 import * as versions from './pages/versions.js'
 import * as content from './pages/content.js'
@@ -12,36 +12,42 @@ import * as worldsPage from './pages/worlds.js'
 import * as modpacksPage from './pages/modpacks.js'
 import * as serversPage from './pages/servers.js'
 import { openNickMenu, initUpdates, showCrash } from './ui/extras.js'
+import { copyFriendAddress, importPack, migrateDialog } from './ui/tools.js'
+
+const contentOf = type => ({ render: (root, p) => content.render(root, { ...p, type }) })
 
 register('home', home)
-register('versions', versions)
-register('mods', { render: (root, p) => content.render(root, { ...p, type: 'mod' }) })
-register('packs', { render: (root, p) => content.render(root, { ...p, type: 'resourcepack' }) })
-register('shots', shots)
-register('worlds', worldsPage)
-register('modpacks', modpacksPage)
+register('library', tabbed('library', [
+  { id: 'versions', label: 'Версии', page: versions },
+  { id: 'modpacks', label: 'Сборки', page: modpacksPage }
+]))
+register('mods', tabbed('mods', [
+  { id: 'mod', label: 'Моды', page: contentOf('mod') },
+  { id: 'resourcepack', label: 'Ресурспаки', page: contentOf('resourcepack') },
+  { id: 'shader', label: 'Шейдеры', page: contentOf('shader') }
+]))
+register('worlds', tabbed('worlds', [
+  { id: 'worlds', label: 'Миры', page: worldsPage },
+  { id: 'shots', label: 'Скриншоты', page: shots }
+]))
 register('servers', serversPage)
-register('shaders', { render: (root, p) => content.render(root, { ...p, type: 'shader' }) })
 register('settings', settingsPage)
 
 const NAV = [
   ['home', 'house', 'Главная'],
-  ['versions', 'gamepad-2', 'Версии'],
-  ['modpacks', 'package-plus', 'Сборки'],
+  ['library', 'gamepad-2', 'Библиотека'],
   ['mods', 'puzzle', 'Моды'],
-  ['packs', 'layers', 'Ресурспаки'],
-  ['shaders', 'sun', 'Шейдеры'],
   ['worlds', 'globe', 'Миры'],
   ['servers', 'server', 'Сервера'],
-  ['shots', 'camera', 'Скриншоты'],
   ['settings', 'settings', 'Настройки']
 ]
 
 const TIPS = [
-  'Нажми <strong>F2</strong> в игре — снимок появится в разделе «Скриншоты».',
+  'Нажми <strong>F2</strong> в игре — снимок появится в разделе <strong>«Миры → Скриншоты»</strong>.',
   'У каждой версии своя папка: моды и миры <strong>1.20.1</strong> не смешаются с <strong>1.21</strong>.',
   'Java ставится сама — нужная версия под каждую игру.',
   'Тормозит? Кнопка <strong>«Ускорить игру»</strong> на главной поставит Fabric и Sodium.',
+  'Хочешь играть с другом без сервера? <strong>«Миры» → «Играть с другом»</strong>.',
   'Скачанные версии запускаются и без интернета.',
   'После каждой игры лаунчер сам сохраняет копии миров — смотри раздел <strong>«Миры»</strong>.',
   'Нажми на свой ник внизу, чтобы переключиться на другой или добавить новый.'
@@ -68,6 +74,20 @@ function renderShell () {
   $('#btn-log').onclick = () => toggleDrawer()
   $('#game-pill').onclick = () => toggleDrawer(true)
   $('#player').onclick = () => openNickMenu($('#player'))
+  $('#friend-chip').onclick = () => copyFriendAddress()
+
+  // Перетащили файл сборки .mrpack в окно — устанавливаем.
+  document.addEventListener('dragover', e => {
+    if ([...(e.dataTransfer && e.dataTransfer.items) || []].some(i => i.kind === 'file')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+  })
+  document.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+    if (!f) return
+    e.preventDefault()
+    if (!/\.mrpack$/i.test(f.name)) { toast('Сюда можно перетащить файл сборки .mrpack', 'err'); return }
+    const p = api.pathForFile(f)
+    if (p) importPack(p)
+  })
   api.on('win:state', s => {
     $('#btn-max').innerHTML = icon(s.maximized ? 'copy' : 'square', s.maximized ? 15 : 14)
     $('#btn-max').title = s.maximized ? 'Восстановить' : 'Развернуть'
@@ -104,6 +124,16 @@ function renderPlayer () {
   $('#player').innerHTML = `
     <span class="avatar-wrap"><span class="avatar">${avatarHtml(name, !!ely)}</span><span class="dot ${g !== 'idle' ? 'busy' : ''}"></span></span>
     <span><div class="player-name">${esc(name || 'Игрок')}</div><div class="player-status">${ely ? '<span class="ely-tag">Ely.by</span>' : ''}${status}</div></span>`
+}
+
+function renderFriendChip () {
+  const chip = $('#friend-chip')
+  const a = state.game.state !== 'idle' && state.game.friendAddress
+  chip.hidden = !a
+  if (a && chip.dataset.addr !== a) {
+    chip.dataset.addr = a
+    chip.innerHTML = `${icon('users', 14)}<span>${esc(a)}</span>${icon('copy', 13)}`
+  }
 }
 
 let pillMode = ''
@@ -205,7 +235,7 @@ async function init () {
 
   on((s, patch) => {
     if ('settings' in patch || 'game' in patch || 'accounts' in patch) renderPlayer()
-    if ('game' in patch) renderGamePill()
+    if ('game' in patch) { renderGamePill(); renderFriendChip() }
   })
 
   api.on('game:status', st => {
@@ -215,7 +245,9 @@ async function init () {
       $('#log').textContent = ''
     }
     const wasBusy = state.game.state !== 'idle'
+    const hadAddr = state.game.friendAddress
     set({ game: st })
+    if (st.friendAddress && st.friendAddress !== hadAddr && document.hasFocus()) toast(`Адрес для друга: ${st.friendAddress}. Нажми на него вверху, чтобы скопировать`, 'info', 8000)
     if (wasBusy && st.state === 'idle') refreshStats()
     if (st.error) {
       if (st.crashed) showCrash(st)
@@ -233,12 +265,15 @@ async function init () {
   refreshAccounts()
   api.on('task:status', st => {
     set({ tasks: { ...state.tasks, [st.key]: st } })
+    window.dispatchEvent(new CustomEvent('astra:task', { detail: st }))
   })
   api.game.log().then(lines => lines.length && appendLog(lines)).catch(() => {})
 
   go('home')
-  refreshVersions()
+  const versionsReady = refreshVersions()
   if (!settings.nickname) await welcome()
+  // Первый запуск: если есть папка TLauncher, предложим перенести миры.
+  if (!state.settings.migrationOffered) versionsReady.then(() => setTimeout(() => migrateDialog({ first: true }), 600))
 }
 
 init().catch(e => {

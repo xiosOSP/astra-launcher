@@ -229,7 +229,7 @@ export function render (root) {
 
   root.addEventListener('click', async e => {
     const g = e.target.closest('[data-go]')
-    if (g) return go(g.dataset.go)
+    if (g) return go(g.dataset.go, g.dataset.go === 'mods' ? { sub: 'mod' } : {})
     if (e.target.closest('[data-retry-versions]')) return refreshVersions()
     if (e.target.closest('[data-boost]')) {
       try {

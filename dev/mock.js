@@ -37,8 +37,24 @@ const mods = [
   ['1IjD5062', 'Continuity', 'A Fabric mod that allows for efficient connected textures.', 'PepperCode1', 19e6, ['decoration'], 0x60a5fa],
   ['w7ThoJFB', 'Zoomify', 'A zoom mod with infinite customizability.', 'isXander', 15e6, ['utility'], 0xfacc15],
   ['EsAfCjCV', 'AppleSkin', 'Food-related HUD improvements.', 'squeek502', 28e6, ['food', 'utility'], 0x84cc16],
-  ['1bokaNcj', "Xaero's Minimap", 'Displays a map of the nearby world terrain, players, mobs and more.', 'thexaero', 30e6, ['adventure', 'utility'], 0x94a3b8]
+  ['1bokaNcj', "Xaero's Minimap", 'Displays a map of the nearby world terrain, players, mobs and more.', 'thexaero', 30e6, ['adventure', 'utility'], 0x94a3b8],
+  ['qANg5Jrr', 'e4mc', 'Open your singleplayer world to anyone, anywhere, without port forwarding.', 'skyecodes', 8e6, ['utility'], 0x38bdf8]
 ]
+
+// Проверка модов: файл мода в тестовом режиме = 'mock:' + адрес, так что хеш известен заранее.
+const sha1 = t => require('crypto').createHash('sha1').update(t).digest('hex')
+const MOCK_FORGE = sha1('mock:forge-mod')
+function versionByHash (h) {
+  if (h === MOCK_FORGE) return { id: 'vForge', project_id: 'FoRgE001', loaders: ['forge'], game_versions: ['1.20.1'], dependencies: [], files: [] }
+  for (const m of mods) {
+    const url = `https://cdn.modrinth.com/data/${m[0]}/file`
+    if (sha1('mock:' + url) !== h) continue
+    const deps = m[0] === 'AANobbMI' ? [] : [{ project_id: 'P7dR8mSH', dependency_type: 'required' }]
+    if (m[0] === 'lfHFW1mp') deps.push({ project_id: '1bokaNcj', dependency_type: 'incompatible' })
+    return { id: 'v' + m[0], project_id: m[0], loaders: ['fabric', 'quilt'], game_versions: ['1.21.10'], dependencies: m[0] === 'P7dR8mSH' ? [] : deps, files: [{ hashes: { sha1: h }, url, filename: m[1] + '.jar' }] }
+  }
+  return null
+}
 const packs = [
   ['XRBjqjo3', 'Faithful 32x', 'Faithful is a resource pack that doubles the resolution of the default textures.', 'Faithful', 9e6, ['32x'], 0x4ade80],
   ['50dA9Sha', 'Fresh Animations', 'Breathe life into your world with smooth new mob animations.', 'FreshLX', 12e6, ['entities'], 0xfb923c],
@@ -101,6 +117,10 @@ function json (url) {
     return [{ release_name: 'jdk-21.0.5+11', binary: { package: { name: 'OpenJDK21U-jre_x64_windows.zip', link: fakeUrl('java', 45e6), size: 45e6, checksum: null } } }]
   }
   if (u.hostname === 'api.modrinth.com') {
+    if (u.pathname === '/v2/projects') {
+      const ids = JSON.parse(u.searchParams.get('ids') || '[]')
+      return ids.map(id => { const m = [...mods, ...packs, ...shaders, ...modpacks].find(x => x[0] === id); return { id, title: m ? m[1] : 'Forge Mod', slug: id } })
+    }
     if (u.pathname === '/v2/search') {
       const facets = u.searchParams.get('facets') || ''
       const kind = facets.includes('modpack') ? 'modpack' : facets.includes('shader') ? 'shader' : facets.includes('resourcepack') ? 'resourcepack' : 'mod'
@@ -125,7 +145,7 @@ function json (url) {
       return [{
         id: 'v' + m[0],
         version_number: '1.0.0', version_type: 'release', date_published: '2025-09-01T00:00:00Z',
-        files: [{ primary: true, filename: `${m[1].replace(/\W+/g, '')}-1.0.0.${isPack ? 'zip' : 'jar'}`, url: 'https://cdn.modrinth.com/data/x/file', hashes: {} }],
+        files: [{ primary: true, filename: `${m[1].replace(/\W+/g, '')}-1.0.0.${isPack ? 'zip' : 'jar'}`, url: `https://cdn.modrinth.com/data/${m[0]}/file`, hashes: {} }],
         dependencies: m[0] === 'AANobbMI' ? [] : (isPack ? [] : [{ project_id: 'P7dR8mSH', dependency_type: 'required' }])
       }]
     }
@@ -167,7 +187,8 @@ async function download (url, dest, onProgress, signal) {
     got = Math.min(size, got + speed / 10)
     if (onProgress) onProgress(got, size)
   }
-  fs.writeFileSync(dest, Buffer.alloc(Math.min(size, 64)))
+  // Содержимое зависит от адреса — у разных модов разные хеши.
+  fs.writeFileSync(dest, Buffer.from('mock:' + url))
   return dest
 }
 
@@ -183,6 +204,11 @@ async function post (url, body) {
     const name = String(body.username).split('@')[0].replace(/\W/g, '').slice(0, 16) || 'ElyPlayer'
     const id = require('crypto').createHash('md5').update(name).digest('hex')
     return { status: 200, ok: true, data: { accessToken: 'tok-' + Date.now(), clientToken: body.clientToken, selectedProfile: { id, name } } }
+  }
+  if (u.hostname === 'api.modrinth.com' && u.pathname === '/v2/version_files') {
+    const out = {}
+    for (const h of body.hashes || []) { const v = versionByHash(h); if (v) out[h] = v }
+    return { status: 200, ok: true, data: out }
   }
   if (u.pathname === '/auth/refresh') return { status: 200, ok: true, data: { accessToken: 'tok-' + Date.now(), clientToken: body.clientToken } }
   return { status: 200, ok: true, data: null }

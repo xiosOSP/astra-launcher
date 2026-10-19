@@ -18,16 +18,18 @@ exports.default = async function afterPack (context) {
   )
 
   const vi = ResEdit.Resource.VersionInfo.fromEntries(res.entries)[0] || ResEdit.Resource.VersionInfo.createEmpty()
-  const [major, minor, patch] = pkg.version.split('.').map(Number)
-  vi.setFileVersion(major, minor, patch, 0, 1033)
-  vi.setProductVersion(major, minor, patch, 0, 1033)
+  // 0.2.0-v1 → 0.2.0.1
+  const [major, minor, patch, rev] = require('../src/main/appversion').fileVersion(pkg.version)
+  vi.setFileVersion(major, minor, patch, rev, 1033)
+  vi.setProductVersion(major, minor, patch, rev, 1033)
   vi.setStringValues({ lang: 1033, codepage: 1200 }, {
     ProductName: 'AstraLauncher',
     FileDescription: 'AstraLauncher',
     CompanyName: 'AstraLauncher',
     LegalCopyright: `© ${new Date().getFullYear()} AstraLauncher`,
     OriginalFilename: 'AstraLauncher.exe',
-    InternalName: 'AstraLauncher'
+    InternalName: 'AstraLauncher',
+    ProductVersion: require('../src/main/appversion').label(pkg.version)
   })
   vi.outputToResourceEntries(res.entries)
 

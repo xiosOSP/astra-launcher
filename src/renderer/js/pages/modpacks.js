@@ -4,6 +4,7 @@ import { esc, $, fmtNum, plural, projectIcon, toast, confirmDialog } from '../ui
 import { blockSvg } from '../art/blocks.js'
 import { state, on, api, profile, selectProfile, refreshPacks, playTime, sameProfile } from '../store.js'
 import { go } from '../router.js'
+import { shareDialog, importPack } from '../ui/tools.js'
 
 const SORTS = [['downloads', 'Популярные'], ['relevance', 'По запросу'], ['follows', 'Любимые'], ['newest', 'Новые'], ['updated', 'Обновлённые']]
 
@@ -18,6 +19,7 @@ export function render (root, { tab } = {}) {
         <p class="page-sub">Готовые наборы модов. Лаунчер сам поставит нужную версию игры, Fabric и все моды — у каждой сборки свои миры.</p>
       </div>
       <div class="actions">
+        <button class="btn" id="p-import" title="Открыть сборку из файла .mrpack (например, от друга). Файл можно и просто перетащить в окно">${icon('file-input', 16)}Открыть файл</button>
         <div class="seg" id="p-tabs">
           <button data-tab="catalog">Каталог</button>
           <button data-tab="installed">Установленные<span class="n" id="p-count"></span></button>
@@ -96,11 +98,12 @@ export function render (root, { tab } = {}) {
     return `<section class="pack ${selected ? 'selected' : ''}">
       ${projectIcon({ title: pk.name, icon: pk.icon }, 'lg')}
       <div class="row-main">
-        <div class="row-title">${esc(pk.name)} ${selected ? '<span class="chip accent">Выбрана</span>' : ''}</div>
-        <div class="row-sub">Minecraft ${esc(pk.mcVersion)} · Fabric ${esc(pk.loaderVersion)} · ${pk.mods} ${plural(pk.mods, 'мод', 'мода', 'модов')} · версия ${esc(pk.versionNumber)}${played ? ` · наиграно ${played}` : ''}</div>
+ <div class="row-title">${esc(pk.name)} ${selected ? '<span class="chip accent">Выбрана</span>' : ''} ${pk.local ? '<span class="chip">из файла</span>' : ''}</div>
+        <div class="row-sub">Minecraft ${esc(pk.mcVersion)}${pk.loaderVersion ? ` · Fabric ${esc(pk.loaderVersion)}` : ''} · ${pk.mods} ${plural(pk.mods, 'мод', 'мода', 'модов')} · версия ${esc(pk.versionNumber)}${played ? ` · наиграно ${played}` : ''}</div>
         ${upd && upd.available ? `<div class="cats"><span class="chip ok">Есть обновление ${esc(upd.versionNumber)}</span></div>` : ''}
       </div>
       <div class="row-actions">
+        <button class="btn sm btn-icon" data-share="${esc(pk.id)}" title="Поделиться сборкой">${icon('share-2', 15)}</button>
         <button class="btn sm btn-icon" data-folder="${esc(pk.id)}" title="Папка сборки">${icon('folder-open', 15)}</button>
         <button class="btn sm btn-icon danger" data-remove="${esc(pk.id)}" title="Удалить сборку" ${running ? 'disabled' : ''}>${icon('trash-2', 15)}</button>
         ${upd && upd.available ? taskBtn(pk.id, 'Обновить', '') : ''}
@@ -176,6 +179,13 @@ export function render (root, { tab } = {}) {
       go('home')
       return
     }
+    if (t.closest('#p-import')) { await importPack(); paint(); return }
+    const sh = t.closest('[data-share]')
+    if (sh) {
+      const pk = state.packs.find(p => p.id === sh.dataset.share)
+      if (pk) shareDialog({ version: pk.mcVersion, loader: 'fabric', pack: pk.id }, pk.name)
+      return
+    }
     const fo = t.closest('[data-folder]')
     if (fo) {
       const pk = state.packs.find(p => p.id === fo.dataset.folder)
@@ -207,6 +217,7 @@ export function render (root, { tab } = {}) {
       btn.disabled = true
       let found = 0
       for (const pk of state.packs) {
+        if (pk.local) continue
         try {
           const r = await api.packs.checkUpdate(pk.id)
           ui.updates[pk.id] = r

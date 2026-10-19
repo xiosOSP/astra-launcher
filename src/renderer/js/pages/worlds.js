@@ -4,6 +4,7 @@ import { esc, $, fmtSize, plural, toast, confirmDialog } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
 import { state, on, api, profile, profileLabel } from '../store.js'
 import { go } from '../router.js'
+import { friendDialog } from '../ui/tools.js'
 
 export function fmtAgo (ms) {
   if (!ms) return ''
@@ -36,6 +37,7 @@ export function render (root) {
       <div class="actions">
         <button class="btn btn-icon" id="w-refresh" title="Обновить">${icon('refresh-cw', 17)}</button>
         <button class="btn" id="w-folder">${icon('folder-open', 16)}Папка миров</button>
+        <button class="btn primary" id="w-friend">${icon('users', 16)}Играть с другом</button>
       </div>
     </div>
     <div id="w-note"></div>
@@ -73,6 +75,7 @@ export function render (root) {
         </div>
         <div class="row-actions">
           <button class="btn sm btn-icon" data-open-world="${esc(w.name)}" title="Открыть папку мира">${icon('folder-open', 15)}</button>
+          <button class="btn sm" data-friend="${esc(w.name)}" title="Открыть этот мир для друга">${icon('users', 15)}С другом</button>
           <button class="btn sm outline-accent" data-backup="${esc(w.name)}" ${isBusy ? 'disabled' : ''}>${isBusy ? icon('loader-circle', 15).replace('<svg ', '<svg class="spin" ') + 'Сохраняю…' : icon('archive', 15) + 'Сделать копию'}</button>
         </div>
       </div>
@@ -113,6 +116,9 @@ export function render (root) {
     const p = profile()
     if (t.closest('#w-refresh')) return load()
     if (t.closest('#w-folder')) return api.shell.openFolder('saves', p).catch(err => toast(err.message, 'err'))
+    if (t.closest('#w-friend')) return p.version ? friendDialog(null, p) : toast('Сначала выбери версию', 'err')
+    const fr = t.closest('[data-friend]')
+    if (fr) return friendDialog(fr.dataset.friend, p)
     if (t.closest('[data-go-settings]')) return go('settings')
     if (t.closest('[data-go-home]')) return go('home')
     const ow = t.closest('[data-open-world]')

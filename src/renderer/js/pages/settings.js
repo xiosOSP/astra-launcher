@@ -2,7 +2,8 @@ import { icon } from '../ui/icons.js'
 import { esc, $, $$, toast, confirmDialog } from '../ui/dom.js'
 import { avatarHtml } from '../art/blocks.js'
 import { addNickDialog, switchNick, switchAccount, elyLoginDialog, getUpdateState, openUpdateModal } from '../ui/extras.js'
-import { state, set, api } from '../store.js'
+import { state, set, api, profile, profileLabel } from '../store.js'
+import { storageDialog, migrateDialog } from '../ui/tools.js'
 
 export function render (root) {
   const s = state.settings
@@ -29,11 +30,21 @@ export function render (root) {
       </section>
 
       <section class="card">
-        <h2 class="card-title">${icon('memory-stick', 18)}Память для игры</h2>
-        <p class="card-sub">На компьютере ${info.totalRamGb} ГБ. Обычно хватает 4 ГБ, для больших сборок модов — 6–8 ГБ. Больше половины ставить не стоит: системе тоже нужна память.</p>
-        <div class="ram-value" id="st-ram-val"></div>
-        <input type="range" class="range" id="st-ram" min="1" max="${maxRam}" step="1" value="${s.memoryGb}" aria-label="Память в гигабайтах">
-        <div class="ram-scale"><span>1 ГБ</span><span>${maxRam} ГБ</span></div>
+        <h2 class="card-title">${icon('gauge', 18)}Память и производительность</h2>
+        <p class="card-sub" id="st-machine">На компьютере ${info.totalRamGb} ГБ памяти.</p>
+        <div class="set-row">
+          <div class="txt"><b>Память для игры</b><span id="st-mem-hint"></span></div>
+          <div class="seg" id="st-mem-mode"><button data-v="auto">Авто</button><button data-v="manual">Вручную</button></div>
+        </div>
+        <div id="st-ram-box">
+          <div class="ram-value" id="st-ram-val"></div>
+          <input type="range" class="range" id="st-ram" min="1" max="${maxRam}" step="1" value="${s.memoryGb}" aria-label="Память в гигабайтах">
+          <div class="ram-scale"><span>1 ГБ</span><span>${maxRam} ГБ</span></div>
+        </div>
+        <div class="set-row">
+          <div class="txt"><b>Облегчённая графика</b><span id="st-light-hint"></span></div>
+          <div class="seg" id="st-light"><button data-v="auto">Авто</button><button data-v="on">Вкл</button><button data-v="off">Выкл</button></div>
+        </div>
       </section>
 
       <section class="card">
@@ -44,6 +55,10 @@ export function render (root) {
           <select class="input" id="st-lang" style="width:190px">
             ${[['ru_ru', 'Русский'], ['uk_ua', 'Українська'], ['be_by', 'Беларуская'], ['kk_kz', 'Қазақша'], ['en_us', 'English'], ['', 'Не менять']].map(([v, l]) => `<option value="${v}" ${s.gameLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
+        </div>
+        <div class="set-row">
+          <div class="txt"><b>Общее управление</b><span>Клавиши, мышь и звук одинаковые во всех версиях и сборках: настроил в одной — работает везде</span></div>
+          <label class="switch"><input type="checkbox" id="st-shared" ${s.sharedControls ? 'checked' : ''}><span></span></label>
         </div>
         <div class="set-row">
           <div class="txt"><b>Полный экран</b><span>Игра откроется сразу на весь экран</span></div>
@@ -62,6 +77,19 @@ export function render (root) {
           <div class="seg" id="st-after">
             <button data-v="hide">Скрыть</button><button data-v="keep">Оставить</button><button data-v="close">Закрыть</button>
           </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">${icon('hard-drive', 18)}Место и перенос</h2>
+        <p class="card-sub">Что занимает место и как забрать миры из другого лаунчера.</p>
+        <div class="set-row">
+          <div class="txt"><b>Место на диске</b><span>Сколько занимают версии, сборки и миры. Лишние файлы удаляются одной кнопкой</span></div>
+          <button class="btn" id="st-storage">${icon('hard-drive', 16)}Посмотреть</button>
+        </div>
+        <div class="set-row">
+          <div class="txt"><b>Перенос из TLauncher</b><span>Миры, скриншоты, ресурспаки, сервера и управление. Старая папка не меняется</span></div>
+          <button class="btn" id="st-migrate">${icon('folder-input', 16)}Перенести</button>
         </div>
       </section>
 
@@ -221,9 +249,9 @@ export function render (root) {
     const v = `Версия ${info.version}.`
     t.textContent = st.status === 'checking' ? `${v} Проверяю…`
       : st.status === 'none' ? `${v} Это последняя версия.`
-        : st.status === 'available' ? `${v} Доступна ${st.version}.`
-          : st.status === 'downloading' ? `${v} Скачиваю ${st.version}: ${st.percent || 0}%`
-            : st.status === 'ready' ? `${v} Версия ${st.version} скачана — перезапусти лаунчер.`
+        : st.status === 'available' ? `${v} Доступна ${st.versionLabel || st.version}.`
+          : st.status === 'downloading' ? `${v} Скачиваю ${st.versionLabel || st.version}: ${st.percent || 0}%`
+            : st.status === 'ready' ? `${v} Версия ${st.versionLabel || st.version} скачана — перезапусти лаунчер.`
               : st.status === 'error' ? `${v} Не удалось проверить: ${st.error}` : v
   }
   paintUpd(getUpdateState())
@@ -234,7 +262,39 @@ export function render (root) {
     if (st.status === 'available') openUpdateModal()
   })
 
-  // Память
+  // Память и производительность
+  let perfInfo = null
+  const paintPerf = () => {
+    const cur = state.settings
+    $$('#st-mem-mode button', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cur.memoryMode)))
+    $$('#st-light button', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cur.lightMode)))
+    $('#st-ram-box', root).hidden = cur.memoryMode !== 'manual'
+    const pi = perfInfo
+    if (pi) {
+      $('#st-machine', root).textContent = `На компьютере ${pi.ram} ГБ памяти и ${pi.cores} ${pi.cores % 10 === 1 && pi.cores % 100 !== 11 ? 'ядро' : pi.cores % 10 >= 2 && pi.cores % 10 <= 4 && (pi.cores % 100 < 12 || pi.cores % 100 > 14) ? 'ядра' : 'ядер'} процессора${pi.integratedOnly ? ', встроенная видеокарта' : ''}.${pi.weak ? ' Компьютер слабоватый для Minecraft — лаунчер это учтёт.' : ''}`
+    }
+    const p = profile()
+    $('#st-mem-hint', root).textContent = cur.memoryMode === 'auto'
+      ? (pi && pi.autoMemory && p.version ? `Лаунчер сам решает: сейчас для ${profileLabel(p)} — ${pi.autoMemory.gb} ГБ. Для сборок с модами больше` : 'Лаунчер сам решает: обычной игре 2–3 ГБ, сборкам с модами 4–6 ГБ')
+      : 'Столько памяти получит любая версия. Больше половины ставить не стоит'
+    $('#st-light-hint', root).textContent = 'Для новых версий и сборок: дальность прорисовки 8, быстрая графика, меньше частиц. Настройки, которые ты уже менял, не трогаются. ' +
+      (cur.lightMode === 'auto' ? (pi ? (pi.weak ? 'Сейчас включится: компьютер слабоватый' : 'Сейчас не нужна: компьютер справится') : '') : cur.lightMode === 'on' ? 'Включена всегда' : 'Выключена')
+  }
+  api.perf(profile()).then(r => { perfInfo = r; if (root.isConnected) paintPerf() }).catch(() => {})
+  $('#st-mem-mode', root).addEventListener('click', async e => {
+    const b = e.target.closest('[data-v]')
+    if (b && await save({ memoryMode: b.dataset.v }, b.dataset.v === 'auto' ? 'Память подбирается автоматически' : 'Память — вручную')) paintPerf()
+  })
+  $('#st-light', root).addEventListener('click', async e => {
+    const b = e.target.closest('[data-v]')
+    if (b && await save({ lightMode: b.dataset.v })) paintPerf()
+  })
+  $('#st-shared', root).addEventListener('change', e => save({ sharedControls: e.target.checked }, e.target.checked ? 'Управление будет общим для всех версий' : 'У каждой версии своё управление'))
+  $('#st-storage', root).addEventListener('click', () => storageDialog())
+  $('#st-migrate', root).addEventListener('click', () => migrateDialog())
+  paintPerf()
+
+  // Память вручную
   const ram = $('#st-ram', root)
   const paintRam = () => {
     const v = Number(ram.value)
@@ -258,7 +318,7 @@ export function render (root) {
   }))
   const after = $('#st-after', root)
   const AFTER_HINT = {
-    hide: 'Лаунчер спрячется и вернётся, когда игра закроется',
+    hide: 'Лаунчер свернётся в значок возле часов и вернётся, когда игра закроется',
     keep: 'Лаунчер останется открытым рядом с игрой',
     close: 'Лаунчер закроется, игра продолжит работать'
   }
