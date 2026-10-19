@@ -1,11 +1,14 @@
-# Сборка и публикация релиза: при пуше тега vX.Y.Z GitHub собирает
-# portable-версию на Windows и выкладывает её вместе с update.json
-# (по нему лаунчер находит и проверяет обновление).
+# Сборка и публикация релиза. Когда в main меняется версия в package.json,
+# GitHub собирает portable-версию на Windows и выкладывает релиз vX.Y.Z
+# вместе с update.json (по нему лаунчер находит и проверяет обновление).
+# Если релиз этой версии уже есть — ничего не делает.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,32 +24,45 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Версия в теге совпадает с package.json
+      - name: Версия и проверка, что такого релиза ещё нет
+        id: ver
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          PKG=$(node -p "require('./package.json').version")
-          if [ "v$PKG" != "$GITHUB_REF_NAME" ]; then
-            echo "Тег $GITHUB_REF_NAME, а в package.json $PKG"; exit 1
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Релиз v$V уже есть — пропускаю"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - run: npm ci
+        if: steps.ver.outputs.skip == 'false'
 
       - name: Сборка
+        if: steps.ver.outputs.skip == 'false'
         run: npx electron-builder --win portable --x64 --publish never
 
       - name: update.json
+        if: steps.ver.outputs.skip == 'false'
         run: node dev/release.js
 
       - name: Описание релиза из CHANGELOG.md
+        if: steps.ver.outputs.skip == 'false'
         shell: bash
         run: |
-          V="${GITHUB_REF_NAME#v}"
+          V="${{ steps.ver.outputs.version }}"
           awk -v v="## $V" '$0 == v {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           cat notes.md
 
       - uses: softprops/action-gh-release@v2
+        if: steps.ver.outputs.skip == 'false'
         with:
-          name: AstraLauncher ${{ github.ref_name }}
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: AstraLauncher ${{ steps.ver.outputs.version }}
           body_path: notes.md
           files: |
             dist/AstraLauncher-Portable-*.exe
