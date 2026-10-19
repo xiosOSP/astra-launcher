@@ -10,6 +10,7 @@ import * as shots from './pages/shots.js'
 import * as settingsPage from './pages/settings.js'
 import * as worldsPage from './pages/worlds.js'
 import * as modpacksPage from './pages/modpacks.js'
+import * as serversPage from './pages/servers.js'
 import { openNickMenu, initUpdates, showCrash } from './ui/extras.js'
 
 register('home', home)
@@ -19,6 +20,7 @@ register('packs', { render: (root, p) => content.render(root, { ...p, type: 'res
 register('shots', shots)
 register('worlds', worldsPage)
 register('modpacks', modpacksPage)
+register('servers', serversPage)
 register('shaders', { render: (root, p) => content.render(root, { ...p, type: 'shader' }) })
 register('settings', settingsPage)
 
@@ -30,6 +32,7 @@ const NAV = [
   ['packs', 'layers', 'Ресурспаки'],
   ['shaders', 'sun', 'Шейдеры'],
   ['worlds', 'globe', 'Миры'],
+  ['servers', 'server', 'Сервера'],
   ['shots', 'camera', 'Скриншоты'],
   ['settings', 'settings', 'Настройки']
 ]

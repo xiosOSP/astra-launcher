@@ -13,6 +13,7 @@ const updater = require('./updater')
 const stats = require('./stats')
 const worlds = require('./worlds')
 const modpacks = require('./modpacks')
+const servers = require('./servers')
 const profiles = require('./profiles')
 const { hasNonAscii } = require('./paths')
 const { MOCK } = require('./net')
@@ -155,7 +156,7 @@ function registerIpc () {
 
   handle('settings:get', () => settings.load())
   handle('settings:set', patch => {
-    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus']
+    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers']
     if ('nickname' in (patch || {}) && game.state !== 'idle') throw new Error('Ник можно сменить, когда игра закрыта')
     const clean = {}
     for (const k of allowed) if (patch && k in patch) clean[k] = patch[k]
@@ -271,6 +272,9 @@ function registerIpc () {
     return settings.save(patch)
   })
 
+  // ---------- сервера ----------
+  handle('servers:ping', address => servers.ping(String(address)))
+
   // ---------- статистика ----------
   handle('stats:get', () => stats.get())
 
@@ -306,9 +310,11 @@ function registerIpc () {
     return shell.openPath(p)
   })
 
-  handle('game:launch', profile => {
+  handle('game:launch', (profile, opts = {}) => {
     rememberProfile(profile)
-    return game.launch(profile)
+    const server = opts && opts.server ? String(opts.server) : null
+    if (server) servers.parseAddress(server) // проверка адреса
+    return game.launch(profile, { server })
   })
   handle('game:stop', () => game.stop())
   handle('game:log', () => game.getLog())

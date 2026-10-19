@@ -141,7 +141,7 @@ class Game {
     if (this.cancelled) throw new Error('Запуск отменён')
   }
 
-  async launch (rawProfile) {
+  async launch (rawProfile, { server = null } = {}) {
     if (this.state !== 'idle') throw new Error('Игра уже запускается или запущена')
     const profile = normalize(rawProfile)
     const s = settings.load()
@@ -157,6 +157,7 @@ class Game {
     this.log = []
     this.xmlBuf = ''
     this.progress.reset()
+    if (server) this.pushLog(`[Astra] Сразу на сервер ${server}`)
     this.pushLog(`[Astra] Запуск ${profile.pack ? 'сборки ' + profile.pack + ', ' : ''}${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.nickname}`)
 
     try {
@@ -242,6 +243,8 @@ class Game {
           ...splitArgs(s.jvmArgs)
         ],
         astraVerified: true,
+        // Сразу зайти на сервер: в 1.20+ через quickPlay, в старых версиях через --server/--port.
+        ...(server ? { quickPlay: { type: JSON.stringify(vmeta.arguments || {}).includes('quickPlayMultiplayer') ? 'multiplayer' : 'legacy', identifier: server.includes(':') ? server : server + ':25565' } } : {}),
         overrides: {
           gameDirectory: instDir,
           cwd: instDir, // логи игры попадут в папку сборки

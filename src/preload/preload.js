@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('astra', {
     openPage: () => call('update:openPage')
   },
   stats: () => call('stats:get'),
+  servers: {
+    ping: address => call('servers:ping', address)
+  },
   packs: {
     search: params => call('packs:search', params),
     list: () => call('packs:list'),
@@ -60,7 +63,7 @@ contextBridge.exposeInMainWorld('astra', {
     remove: params => call('shots:remove', params)
   },
   game: {
-    launch: profile => call('game:launch', profile),
+    launch: (profile, opts) => call('game:launch', profile, opts || {}),
     stop: () => call('game:stop'),
     log: () => call('game:log'),
     status: () => call('game:status')
