@@ -1,0 +1,87 @@
+{
+  "name": "astra-launcher",
+  "version": "1.2.0",
+  "description": "Лаунчер Minecraft с модами, ресурспаками и автоматической Java",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:mock": "cross-env ASTRA_MOCK=1 electron .",
+    "dist": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "icons": "node dev/make-icons.js"
+  },
+  "author": "Dobe",
+  "license": "MIT",
+  "dependencies": {
+    "extract-zip": "^2.0.1",
+    "minecraft-launcher-core": "^3.18.2",
+    "tar": "^7.5.22",
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource/russo-one": "^5.3.0",
+    "cross-env": "^10.1.0",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "lucide-static": "^1.59.0",
+    "playwright-core": "^1.64.1",
+    "png-to-ico": "^3.0.2",
+    "resedit": "^3.1.0"
+  },
+  "productName": "AstraLauncher",
+  "build": {
+    "appId": "app.astralauncher",
+    "productName": "AstraLauncher",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "AstraLauncher",
+      "artifactName": "AstraLauncher-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "AstraLauncher-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game"
+    },
+    "afterPack": "dev/after-pack.js",
+    "publish": null
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astralauncher/astra-launcher"
+  }
+}
