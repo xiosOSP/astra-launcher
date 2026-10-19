@@ -1,5 +1,6 @@
 'use strict'
-// Моды и ресурспаки: поиск в Modrinth, установка с зависимостями, список, вкл/выкл, удаление.
+// Моды, ресурспаки и шейдеры: поиск в Modrinth, установка с зависимостями,
+// список, вкл/выкл, обновление, удаление.
 const fs = require('fs')
 const path = require('path')
 const { fetchJson, download } = require('./net')
@@ -8,9 +9,11 @@ const { inside } = require('./paths')
 
 const API = 'https://api.modrinth.com/v2'
 const TYPES = {
-  mod: { folder: 'mods', exts: ['.jar', '.jar.disabled'] },
-  resourcepack: { folder: 'resourcepacks', exts: ['.zip'] }
+  mod: { folder: 'mods', exts: ['.jar', '.jar.disabled'], loaders: ['fabric'] },
+  resourcepack: { folder: 'resourcepacks', exts: ['.zip'], loaders: null },
+  shader: { folder: 'shaderpacks', exts: ['.zip'], loaders: ['iris', 'optifine'] }
 }
+const IRIS_ID = 'YL57xq9U' // Iris Shaders — загрузчик шейдеров для Fabric
 
 function typeInfo (type) {
   const t = TYPES[type]
@@ -26,9 +29,9 @@ function metaFile (profile) {
 function readMeta (profile) {
   try {
     const m = JSON.parse(fs.readFileSync(metaFile(profile), 'utf8'))
-    return { mod: m.mod || {}, resourcepack: m.resourcepack || {} }
+    return { mod: m.mod || {}, resourcepack: m.resourcepack || {}, shader: m.shader || {} }
   } catch {
-    return { mod: {}, resourcepack: {} }
+    return { mod: {}, resourcepack: {}, shader: {} }
   }
 }
 
@@ -47,7 +50,10 @@ async function search ({ type = 'mod', query = '', gameVersion, loader, sort = '
   const facets = [[`project_type:${type}`]]
   // Лаунчер ставит моды только под Fabric.
   if (type === 'mod') facets.push(['categories:fabric'])
-  if (gameVersion) facets.push([`versions:${gameVersion}`])
+  // Шейдеры для Iris (большинство шейдеров OptiFine тоже работают в Iris).
+  if (type === 'shader') facets.push(['categories:iris', 'categories:optifine'])
+  // У шейдеров версии игры часто не указаны — по ним не фильтруем.
+  if (gameVersion && type !== 'shader') facets.push([`versions:${gameVersion}`])
   const params = new URLSearchParams({
     query: String(query).slice(0, 100),
     facets: JSON.stringify(facets),
@@ -89,18 +95,30 @@ function safeFileName (name, type) {
   return base
 }
 
+// Самая новая подходящая версия проекта для этой сборки.
+async function latestVersion (projectId, profile, type) {
+  const info = typeInfo(type)
+  const params = new URLSearchParams({ game_versions: JSON.stringify([profile.version]) })
+  if (info.loaders) params.set('loaders', JSON.stringify(info.loaders))
+  let list = await fetchJson(`${API}/project/${projectId}/version?${params}`)
+  if ((!list || !list.length) && type === 'shader') {
+    // Шейдеры часто не помечают новые версии игры — берём последнюю для Iris.
+    list = await fetchJson(`${API}/project/${projectId}/version?${new URLSearchParams({ loaders: JSON.stringify(info.loaders) })}`)
+  }
+  return pickVersion(list)
+}
+
 async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {}, visited = new Set()) {
   profile = normalize(profile)
   const info = typeInfo(type)
   if (type === 'mod' && profile.loader !== 'fabric') throw new Error('Для модов нужна версия с Fabric')
+  if (type === 'shader' && profile.loader !== 'fabric') throw new Error('Для шейдеров нужна версия с Fabric')
   if (!/^[A-Za-z0-9]{6,12}$/.test(String(projectId))) throw new Error('Некорректный проект')
   if (visited.has(projectId)) return { installed: [], warnings: [] }
   visited.add(projectId)
 
   const project = await fetchJson(`${API}/project/${projectId}`)
-  const params = new URLSearchParams({ game_versions: JSON.stringify([profile.version]) })
-  if (type === 'mod') params.set('loaders', JSON.stringify(['fabric']))
-  const version = pickVersion(await fetchJson(`${API}/project/${projectId}/version?${params}`))
+  const version = await latestVersion(projectId, profile, type)
   if (!version) throw new Error(`«${project.title}» нет для ${profile.version}`)
 
   const file = version.files.find(f => f.primary) || version.files[0]
@@ -131,11 +149,23 @@ async function install ({ projectId, profile, type = 'mod' }, onStatus = () => {
     icon: project.icon_url || null,
     description: project.description || '',
     version: version.version_number,
+    versionId: version.id,
     installedAt: Date.now()
   }
   writeMeta(profile, meta)
 
   const result = { installed: [project.title], warnings: [] }
+
+  // Шейдерам нужен Iris (он сам подтянет Sodium).
+  if (type === 'shader' && !installedIds({ profile, type: 'mod' }).includes(IRIS_ID)) {
+    try {
+      const sub = await install({ projectId: IRIS_ID, profile, type: 'mod' }, onStatus, visited)
+      result.installed.push(...sub.installed)
+      result.warnings.push(...sub.warnings)
+    } catch (e) {
+      result.warnings.push(`Не удалось поставить Iris — без него шейдеры не заработают: ${e.message}`)
+    }
+  }
 
   // Обязательные зависимости (например, Fabric API).
   for (const dep of version.dependencies || []) {
@@ -218,6 +248,49 @@ function installedIds ({ profile, type = 'mod' }) {
     .filter(Boolean)
 }
 
+// ---------- обновления ----------
+// Для каждого установленного проекта ищем самую новую подходящую версию.
+async function checkUpdates ({ profile, type = 'mod' }) {
+  profile = normalize(profile)
+  typeInfo(type)
+  const dir = subDir(profile, typeInfo(type).folder)
+  const meta = readMeta(profile)[type]
+  const items = Object.entries(meta)
+    .filter(([f, m]) => m.projectId && (fs.existsSync(path.join(dir, f)) || fs.existsSync(path.join(dir, f + '.disabled'))))
+  const updates = []
+  let i = 0
+  const worker = async () => {
+    while (i < items.length) {
+      const [file, m] = items[i++]
+      try {
+        const v = await latestVersion(m.projectId, profile, type)
+        if (!v) continue
+        const newFile = (v.files.find(f => f.primary) || v.files[0] || {}).filename
+        const same = m.versionId ? m.versionId === v.id : (newFile === file || m.version === v.version_number)
+        if (!same) updates.push({ file, projectId: m.projectId, title: m.title, current: m.version || '', latest: v.version_number })
+      } catch {}
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(6, items.length) }, worker))
+  return updates.sort((a, b) => a.title.localeCompare(b.title))
+}
+
+// Обновление одного проекта. Выключенный мод остаётся выключенным.
+async function updateOne ({ profile, type = 'mod', file }, onStatus) {
+  profile = normalize(profile)
+  const dir = subDir(profile, typeInfo(type).folder)
+  const name = path.basename(String(file))
+  const m = readMeta(profile)[type][name]
+  if (!m || !m.projectId) throw new Error('Неизвестно, откуда этот файл — обнови его вручную')
+  const wasDisabled = !fs.existsSync(path.join(dir, name)) && fs.existsSync(path.join(dir, name + '.disabled'))
+  const res = await install({ projectId: m.projectId, profile, type }, onStatus, new Set())
+  if (wasDisabled) {
+    const now = Object.entries(readMeta(profile)[type]).find(([, x]) => x.projectId === m.projectId)
+    if (now && fs.existsSync(path.join(dir, now[0]))) fs.renameSync(path.join(dir, now[0]), path.join(dir, now[0] + '.disabled'))
+  }
+  return res
+}
+
 // Установки идут строго по очереди: иначе две параллельные установки
 // перезаписывали бы content.json друг друга и качали бы одну зависимость дважды.
 let queue = Promise.resolve()
@@ -227,4 +300,10 @@ function installQueued (params, onStatus) {
   return run
 }
 
-module.exports = { search, install: installQueued, list, toggle, remove, installedIds }
+function updateQueued (params, onStatus) {
+  const run = queue.then(() => updateOne(params, onStatus))
+  queue = run.catch(() => {})
+  return run
+}
+
+module.exports = { search, install: installQueued, update: updateQueued, checkUpdates, list, toggle, remove, installedIds }

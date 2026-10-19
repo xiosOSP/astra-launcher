@@ -8,6 +8,7 @@ export const state = {
   versionsError: null,
   game: { state: 'idle' },
   stats: { byProfile: {}, totalMs: 0 },
+  packs: [], // установленные сборки модов
   tasks: {} // key -> { stage, current, total, done, error }
 }
 
@@ -31,9 +32,25 @@ export function versionInfo (id) {
   return state.versions && state.versions.versions.find(v => v.id === id)
 }
 
+export function packInfo (id) {
+  return (state.packs || []).find(x => x.id === id) || null
+}
+
 export function profileLabel (p = profile()) {
   if (!p.version) return 'Версия не выбрана'
+  if (p.pack) {
+    const pk = packInfo(p.pack)
+    return pk ? `${pk.name} (${p.version})` : `Сборка (${p.version})`
+  }
   return p.loader === 'fabric' ? `${p.version} + Fabric` : p.version
+}
+
+export function sameProfile (a, b) {
+  return !!a && !!b && a.version === b.version && a.loader === b.loader && (a.pack || '') === (b.pack || '')
+}
+
+export async function refreshPacks () {
+  try { set({ packs: await api.packs.list() }) } catch {}
 }
 
 export async function selectProfile (p) {

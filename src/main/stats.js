@@ -20,7 +20,7 @@ function save () {
   fs.renameSync(tmp, file())
 }
 
-const key = p => `${p.version}|${p.loader}`
+const key = p => p.pack ? `pack:${p.pack}` : `${p.version}|${p.loader}`
 
 function record (profile, { playedMs = 0, launch = false } = {}) {
   const all = load()

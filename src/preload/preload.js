@@ -27,7 +27,9 @@ contextBridge.exposeInMainWorld('astra', {
     list: params => call('content:list', params),
     installedIds: params => call('content:installedIds', params),
     toggle: params => call('content:toggle', params),
-    remove: params => call('content:remove', params)
+    remove: params => call('content:remove', params),
+    checkUpdates: params => call('content:checkUpdates', params),
+    update: params => call('content:update', params)
   },
   boost: profile => call('boost', profile),
   update: {
@@ -38,6 +40,13 @@ contextBridge.exposeInMainWorld('astra', {
     openPage: () => call('update:openPage')
   },
   stats: () => call('stats:get'),
+  packs: {
+    search: params => call('packs:search', params),
+    list: () => call('packs:list'),
+    install: id => call('packs:install', id),
+    checkUpdate: id => call('packs:checkUpdate', id),
+    remove: id => call('packs:remove', id)
+  },
   worlds: {
     list: profile => call('worlds:list', profile),
     backup: (profile, world) => call('worlds:backup', { profile, world }),

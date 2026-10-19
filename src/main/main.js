@@ -12,6 +12,7 @@ const game = require('./game')
 const updater = require('./updater')
 const stats = require('./stats')
 const worlds = require('./worlds')
+const modpacks = require('./modpacks')
 const profiles = require('./profiles')
 const { hasNonAscii } = require('./paths')
 const { MOCK } = require('./net')
@@ -118,6 +119,7 @@ function folderFor (kind, profile) {
     case 'resourcepacks':
     case 'screenshots':
     case 'saves':
+    case 'shaderpacks':
     case 'logs': return profiles.subDir(profile, kind, true)
     case 'instances': return profiles.instancesDir()
     default: throw new Error('Неизвестная папка')
@@ -128,14 +130,14 @@ function folderFor (kind, profile) {
 function assertNotRunning (profile) {
   if (game.state === 'idle' || !game.profile || !profile) return
   const p = profiles.normalize(profile)
-  if (p.version === game.profile.version && p.loader === game.profile.loader) {
+  if (profiles.sameProfile(p, game.profile)) {
     throw new Error('Сначала закрой игру — её файлы сейчас заняты')
   }
 }
 
 function rememberProfile (profile) {
   const p = profiles.normalize(profile)
-  const recent = [p, ...settings.load().recentProfiles.filter(r => !(r.version === p.version && r.loader === p.loader))]
+  const recent = [p, ...settings.load().recentProfiles.filter(r => !profiles.sameProfile(r, p))]
   return settings.save({ profile: p, recentProfiles: recent.slice(0, 6) })
 }
 
@@ -187,6 +189,19 @@ function registerIpc () {
   handle('content:installedIds', params => content.installedIds(params))
   handle('content:toggle', params => { assertNotRunning(params && params.profile); return content.toggle(params) })
   handle('content:remove', params => { assertNotRunning(params && params.profile); return content.remove(params) })
+  handle('content:checkUpdates', params => content.checkUpdates(params))
+  handle('content:update', async params => {
+    assertNotRunning(params && params.profile)
+    const key = 'upd:' + (params && params.file)
+    try {
+      const res = await content.update(params, st => send('task:status', { key, ...st }))
+      send('task:status', { key, done: true })
+      return res
+    } catch (e) {
+      send('task:status', { key, done: true, error: e.message })
+      throw e
+    }
+  })
   handle('content:install', async params => {
     assertNotRunning(params && params.profile)
     const key = params && params.projectId
@@ -227,13 +242,42 @@ function registerIpc () {
   })
   handle('update:openPage', () => shell.openExternal(updater.RELEASES_PAGE))
 
+  // ---------- сборки модов ----------
+  handle('packs:search', params => modpacks.search(params))
+  handle('packs:list', () => modpacks.list())
+  handle('packs:checkUpdate', id => modpacks.checkUpdate(id))
+  handle('packs:install', async id => {
+    if (game.state !== 'idle' && game.profile && game.profile.pack === id) throw new Error('Сначала закрой игру')
+    const key = 'pack:' + id
+    send('task:status', { key, stage: 'В очереди' })
+    try {
+      const res = await modpacks.install(id, st => send('task:status', { key, ...st }))
+      send('task:status', { key, done: true })
+      rememberProfile(res.profile)
+      return res
+    } catch (e) {
+      send('task:status', { key, done: true, error: e.message })
+      throw e
+    }
+  })
+  handle('packs:remove', id => {
+    if (game.state !== 'idle' && game.profile && game.profile.pack === id) throw new Error('Сначала закрой игру')
+    const s = settings.load()
+    modpacks.remove(id)
+    // Убираем сборку из недавних и, если она выбрана, переключаемся на обычную версию.
+    const recent = s.recentProfiles.filter(p => p.pack !== id)
+    const patch = { recentProfiles: recent }
+    if (s.profile.pack === id) patch.profile = { version: s.profile.version, loader: 'vanilla' }
+    return settings.save(patch)
+  })
+
   // ---------- статистика ----------
   handle('stats:get', () => stats.get())
 
   // ---------- миры ----------
   const worldBusy = profile => {
     const p = profiles.normalize(profile)
-    if (game.state !== 'idle' && game.profile && game.profile.version === p.version && game.profile.loader === p.loader) {
+    if (game.state !== 'idle' && profiles.sameProfile(p, game.profile)) {
       throw new Error('Сначала закрой игру — миры этой сборки сейчас открыты')
     }
     return p

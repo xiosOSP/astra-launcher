@@ -1,9 +1,9 @@
 import { icon } from '../ui/icons.js'
-import { esc, $, $$, fmtNum, projectIcon, toast } from '../ui/dom.js'
+import { esc, $, $$, fmtNum, plural, projectIcon, toast } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
 import { mountScene } from '../art/scene.js'
 import { mountLaunch, QUICK } from '../ui/launch.js'
-import { state, on, api, profile, versionInfo, selectProfile, refreshVersions, playTime } from '../store.js'
+import { state, on, api, profile, versionInfo, selectProfile, refreshVersions, playTime, packInfo } from '../store.js'
 import { go } from '../router.js'
 import { openProject, loadInstalledIds, isInstalled } from './content.js'
 
@@ -129,7 +129,7 @@ export function render (root) {
       const id = c.key === 'latest' ? latest : c.key
       if (!id) return '<div class="skeleton" style="height:104px"></div>'
       const v = versionInfo(id)
-      const selected = p.version === id
+      const selected = p.version === id && !p.pack
       const chips = [
         c.key === 'latest' ? '<span class="chip accent">Рекомендуем</span>' : '',
         selected && p.loader === 'fabric' ? '<span class="chip fabric">Fabric</span>' : '',
@@ -148,7 +148,7 @@ export function render (root) {
     if (!b || state.game.state !== 'idle') return
     const id = b.dataset.version
     const v = versionInfo(id)
-    const keepFabric = profile().loader === 'fabric' && v && v.fabric
+    const keepFabric = !profile().pack && profile().loader === 'fabric' && v && v.fabric
     await selectProfile({ version: id, loader: keepFabric ? 'fabric' : 'vanilla' })
   })
 
@@ -203,6 +203,14 @@ export function render (root) {
     const box = $('#h-promo', root)
     const task = state.tasks.boost
     const busy = task && !task.done
+    if (p.pack) {
+      const pk = packInfo(p.pack)
+      box.innerHTML = `<div><div class="promo-tag">${icon('package-plus', 15)}Выбрана сборка</div>
+        <h2 class="promo-title">${esc(pk ? pk.name : 'Сборка модов')}</h2>
+        <p class="promo-text">${pk ? `${pk.mods} ${plural(pk.mods, 'мод', 'мода', 'модов')} для Minecraft ${esc(pk.mcVersion)}. ` : ''}Свои моды в сборку можно добавить в разделе «Моды».</p></div>
+        <button class="btn" data-go="modpacks">${icon('package-plus', 16)}Все сборки</button>`
+      return
+    }
     if (p.loader === 'fabric' && isInstalled('mod', SODIUM)) {
       box.innerHTML = `<div><div class="promo-tag">${icon('zap', 15)}Оптимизация включена</div>
         <h2 class="promo-title">Sodium уже работает в ${esc(p.version)}</h2>
@@ -253,7 +261,7 @@ export function render (root) {
     if ('stats' in patch) paintHello()
     if ('settings' in patch) { paintHello(); paintVersions(); paintPromo(); refresh() }
     if ('versions' in patch || 'versionsError' in patch) { paintVersions(); paintPromo(); refresh() }
-    if ('tasks' in patch || 'game' in patch) paintPromo()
+    if ('tasks' in patch || 'game' in patch || 'packs' in patch) paintPromo()
   }))
 
   return () => cleanups.forEach(fn => fn())

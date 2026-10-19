@@ -23,6 +23,8 @@ const ALLOWED_HOSTS = new Set([
   'maven.fabricmc.net',
   'api.adoptium.net',
   'github.com',
+  'raw.githubusercontent.com',
+  'gitlab.com',
   'api.github.com',
   'objects.githubusercontent.com',
   'release-assets.githubusercontent.com'

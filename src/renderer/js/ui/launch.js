@@ -1,7 +1,7 @@
 // Кнопка «Играть» + выбор версии. Живёт в баннере главной.
 import { icon } from './icons.js'
 import { esc, popupMenu, confirmDialog, toast, $ } from './dom.js'
-import { state, on, api, profile, profileLabel, versionInfo, selectProfile } from '../store.js'
+import { state, on, api, profile, profileLabel, versionInfo, selectProfile, sameProfile, packInfo } from '../store.js'
 import { go } from '../router.js'
 
 export const QUICK = ['1.20.1', '1.16.5', '1.12.2']
@@ -88,13 +88,15 @@ export function mountLaunch (root) {
     }
     if (g.state !== 'idle') play.disabled = false
 
-    const sub = p.loader === 'fabric' ? 'С модами (Fabric)' : (v && v.id === state.versions?.latest?.release ? 'Последняя версия' : 'Без модов')
-    const key = [p.version, p.loader, sub].join('|')
+    const pk = p.pack ? packInfo(p.pack) : null
+    const title = pk ? pk.name : (p.version || '…')
+    const sub = pk ? `Сборка · ${p.version}` : p.loader === 'fabric' ? 'С модами (Fabric)' : (v && v.id === state.versions?.latest?.release ? 'Последняя версия' : 'Без модов')
+    const key = [title, p.loader, sub].join('|')
     if (key !== vkey) {
       vkey = key
       vbtn.innerHTML = `
-        ${icon(p.loader === 'fabric' ? 'puzzle' : 'package', 20)}
-        <span><div class="v">${esc(p.version || '…')}</div><div class="s">${esc(sub)}</div></span>
+        ${icon(pk ? 'package-plus' : p.loader === 'fabric' ? 'puzzle' : 'package', 20)}
+        <span class="vtext"><div class="v">${esc(title)}</div><div class="s">${esc(sub)}</div></span>
         ${icon('chevron-down', 18)}`
     }
     vbtn.disabled = g.state !== 'idle'
@@ -124,13 +126,22 @@ export function mountLaunch (root) {
 
   paint()
   const off = on((_s, patch) => {
-    if ('game' in patch || 'settings' in patch || 'versions' in patch || 'versionsError' in patch) paint()
+    if ('game' in patch || 'settings' in patch || 'versions' in patch || 'versionsError' in patch || 'packs' in patch) paint()
   })
   return off
 }
 
 function item (p, current) {
-  const checked = p.version === current.version && p.loader === current.loader
+  const checked = sameProfile(p, current)
+  if (p.pack) {
+    const pk = packInfo(p.pack)
+    if (!pk) return ''
+    return `<button class="menu-item" role="menuitemradio" aria-checked="${checked}" data-v="${esc(p.version)}" data-l="fabric" data-pack="${esc(p.pack)}">
+      ${icon(checked ? 'check' : 'package-plus', 16)}
+      <span>${esc(pk.name)}</span>
+      <span class="meta"><span class="chip fabric">${esc(p.version)}</span></span>
+    </button>`
+  }
   const v = versionInfo(p.version)
   const installed = v && (p.loader === 'fabric' ? v.fabricInstalled : v.vanillaInstalled)
   return `<button class="menu-item" role="menuitemradio" aria-checked="${checked}" data-v="${esc(p.version)}" data-l="${p.loader}">
@@ -143,21 +154,23 @@ function item (p, current) {
 function openVersionMenu (anchor) {
   const cur = profile()
   const latest = state.versions?.latest?.release
-  const recent = (state.settings.recentProfiles || []).slice(0, 4)
+  const recent = (state.settings.recentProfiles || []).filter(r => !r.pack).slice(0, 4)
   const seen = new Set(recent.map(r => r.version + r.loader))
   const popular = [latest, ...QUICK].filter(Boolean).map(version => ({ version, loader: 'vanilla' }))
     .filter(p => !seen.has(p.version + p.loader))
+  const packs = (state.packs || []).map(pk => ({ version: pk.mcVersion, loader: 'fabric', pack: pk.id }))
   const vi = versionInfo(cur.version)
   const fabricOk = vi && vi.fabric
 
   const markup = `
+    ${packs.length ? `<div class="menu-group">Сборки</div>${packs.map(p => item(p, cur)).join('')}` : ''}
     ${recent.length ? `<div class="menu-group">Недавние</div>${recent.map(p => item(p, cur)).join('')}` : ''}
     ${popular.length ? `<div class="menu-group">Популярные</div>${popular.map(p => item(p, cur)).join('')}` : ''}
     <div class="menu-sep"></div>
-    <label class="menu-row" title="${fabricOk ? '' : 'Fabric пока не поддерживает эту версию'}">
+    ${cur.pack ? '' : `<label class="menu-row" title="${fabricOk ? '' : 'Fabric пока не поддерживает эту версию'}">
       ${icon('puzzle', 16)} Моды (Fabric) для ${esc(cur.version || 'версии')}
       <span class="switch"><input type="checkbox" id="fab" ${cur.loader === 'fabric' ? 'checked' : ''} ${fabricOk ? '' : 'disabled'}><span></span></span>
-    </label>
+    </label>`}
     <button class="menu-item" data-all>${icon('square-stack', 16)} Все версии</button>`
 
   popupMenu(anchor, markup, {
@@ -167,10 +180,10 @@ function openVersionMenu (anchor) {
         if (!b) return
         close()
         if (b.dataset.all !== undefined) return go('versions')
-        await selectProfile({ version: b.dataset.v, loader: b.dataset.l })
+        await selectProfile(b.dataset.pack ? { version: b.dataset.v, loader: 'fabric', pack: b.dataset.pack } : { version: b.dataset.v, loader: b.dataset.l })
       })
       const fab = menu.querySelector('#fab')
-      fab.addEventListener('change', async () => {
+      if (fab) fab.addEventListener('change', async () => {
         await selectProfile({ version: cur.version, loader: fab.checked ? 'fabric' : 'vanilla' })
         close()
       })

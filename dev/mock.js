@@ -48,6 +48,17 @@ const packs = [
   ['Gp0cN1kL', 'Low Fire', 'Lowers the fire overlay so you can see.', 'Juknum', 3e6, ['utility'], 0xef4444]
 ]
 
+const shaders = [
+  ['HVnmMxH1', 'Complementary Reimagined', 'Shaderpack focused on high-quality visuals while keeping the Minecraft look.', 'EminGT', 20e6, ['atmosphere', 'shadows'], 0x6aa9ff],
+  ['BVzZfTc1', 'BSL Shaders', 'Bright, colorful and soft shaders with many options.', 'CaptTatsu', 15e6, ['bloom', 'shadows'], 0xffb24a],
+  ['Iq1z5pJc', 'MakeUp - Ultra Fast', 'Lightweight shaders for weak PCs.', 'XorDev', 6e6, ['potato', 'lightweight'], 0x84cc16]
+]
+const modpacks = [
+  ['1KVo5zza', 'Fabulously Optimized', 'Improve your graphics and performance with this simple modpack.', 'robotkoer', 9e6, ['optimization', 'lightweight'], 0x8b5cf6, '1.21.10', 22],
+  ['ZYcHoqIo', 'Cobblemon Official Modpack', 'The official Cobblemon modpack with extra quality of life mods.', 'Cobblemon', 3e6, ['adventure'], 0xf87171, '1.21.1', 48],
+  ['JkSi2Fzx', 'Simply Optimized', 'The best mods for performance, nothing else.', 'HyperSoop', 2e6, ['optimization'], 0x22d3ee, '1.21.4', 15]
+]
+
 function hit (m, type) {
   return {
     project_id: m[0], slug: m[1].toLowerCase().replace(/\W+/g, '-'), title: m[1], description: m[2], author: m[3],
@@ -92,19 +103,27 @@ function json (url) {
   if (u.hostname === 'api.modrinth.com') {
     if (u.pathname === '/v2/search') {
       const facets = u.searchParams.get('facets') || ''
-      const isPack = facets.includes('resourcepack')
+      const kind = facets.includes('modpack') ? 'modpack' : facets.includes('shader') ? 'shader' : facets.includes('resourcepack') ? 'resourcepack' : 'mod'
+      const table = { mod: mods, resourcepack: packs, shader: shaders, modpack: modpacks }[kind]
       const q = (u.searchParams.get('query') || '').toLowerCase()
-      const src = (isPack ? packs : mods).filter(m => !q || m[1].toLowerCase().includes(q))
+      const src = table.filter(m => !q || m[1].toLowerCase().includes(q))
       const off = Number(u.searchParams.get('offset')) || 0
       const lim = Number(u.searchParams.get('limit')) || 20
-      return { total_hits: src.length, hits: src.slice(off, off + lim).map(m => hit(m, isPack ? 'resourcepack' : 'mod')) }
+      return { total_hits: src.length, hits: src.slice(off, off + lim).map(m => ({ ...hit(m, kind), versions: m[7] ? [m[7]] : [] })) }
     }
     const pm = u.pathname.match(/^\/v2\/project\/([^/]+)(\/version)?$/)
     if (pm) {
-      const m = [...mods, ...packs].find(x => x[0] === pm[1]) || mods[0]
-      const isPack = packs.includes(m)
-      if (!pm[2]) return { title: m[1], description: m[2], icon_url: null }
+      const m = [...mods, ...packs, ...shaders, ...modpacks].find(x => x[0] === pm[1]) || mods[0]
+      const isPack = packs.includes(m) || shaders.includes(m)
+      if (!pm[2]) return { title: m[1], slug: m[1].toLowerCase().replace(/\W+/g, '-'), description: m[2], icon_url: null }
+      if (modpacks.includes(m)) {
+        const url = `https://cdn.modrinth.com/mock/${m[0]}.mrpack`
+        MRPACKS.set(url, m)
+        return [{ id: 'v' + m[0], version_number: '2.1.0', version_type: 'release', date_published: '2025-09-01T00:00:00Z', game_versions: [m[7]],
+          files: [{ primary: true, filename: m[1].replace(/\W+/g, '') + '-2.1.0.mrpack', url, hashes: {} }], dependencies: [] }]
+      }
       return [{
+        id: 'v' + m[0],
         version_number: '1.0.0', version_type: 'release', date_published: '2025-09-01T00:00:00Z',
         files: [{ primary: true, filename: `${m[1].replace(/\W+/g, '')}-1.0.0.${isPack ? 'zip' : 'jar'}`, url: 'https://cdn.modrinth.com/data/x/file', hashes: {} }],
         dependencies: m[0] === 'AANobbMI' ? [] : (isPack ? [] : [{ project_id: 'P7dR8mSH', dependency_type: 'required' }])
@@ -114,9 +133,31 @@ function json (url) {
   throw new Error('mock: нет данных для ' + url)
 }
 
+const MRPACKS = new Map()
+
+// Настоящий .mrpack: индекс с модами и папка overrides.
+function buildMrpack (m, dest) {
+  const yazl = require('yazl')
+  const zip = new yazl.ZipFile()
+  const files = Array.from({ length: m[8] }, (_, i) => {
+    const url = `https://cdn.modrinth.com/data/mock/mod${i}.jar`
+    SIZES.set(url, 150000 + i * 20000)
+    return { path: `mods/mock-mod-${i}.jar`, hashes: { sha1: 'x'.repeat(40), sha512: 'x' }, env: { client: 'required', server: 'required' }, downloads: [url], fileSize: 150000 + i * 20000 }
+  })
+  const index = { formatVersion: 1, game: 'minecraft', versionId: '2.1.0', name: m[1], files, dependencies: { minecraft: m[7], 'fabric-loader': '0.16.9' } }
+  zip.addBuffer(Buffer.from(JSON.stringify(index)), 'modrinth.index.json')
+  zip.addBuffer(Buffer.from('fov:90\n'), 'overrides/options.txt')
+  zip.addBuffer(Buffer.from('enabled=true\n'), 'overrides/config/mock.properties')
+  zip.end()
+  return new Promise((resolve, reject) => {
+    zip.outputStream.pipe(fs.createWriteStream(dest)).on('close', resolve).on('error', reject)
+  })
+}
+
 // Имитация скорости: ~6 МБ/с на поток, размер берём из таблицы фейковых адресов.
 async function download (url, dest, onProgress, signal) {
   fs.mkdirSync(path.dirname(dest), { recursive: true })
+  if (MRPACKS.has(url)) { await buildMrpack(MRPACKS.get(url), dest); return dest }
   const size = SIZES.get(url) || 200000
   const speed = 6 * 1048576
   let got = 0

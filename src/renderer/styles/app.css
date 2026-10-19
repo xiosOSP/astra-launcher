@@ -825,3 +825,29 @@ input[type="range"].range { width: 100%; appearance: none; background: none; hei
 .backup-row .when { font-variant-numeric: tabular-nums; min-width: 128px; }
 .backup-row .size { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 .hint svg { vertical-align: -2px; color: var(--ok); }
+
+/* ============ 1.3.0: сборки, шейдеры, компактное меню ============ */
+.nav { gap: 2px; }
+.nav-item { height: 42px; }
+.nav-item[aria-current="page"]::before { top: 9px; bottom: 9px; }
+/* На невысоком окне прячем подсказку, а ник и плашку обновления прижимаем к низу. */
+@media (max-height: 820px) {
+  .sidebar-tip { display: none; }
+  .player { margin-top: auto; }
+  #update-slot:not(:empty) { margin-top: auto; }
+  #update-slot:not(:empty) + .player { margin-top: 0; }
+}
+
+.version-btn { max-width: 300px; }
+.version-btn .vtext { min-width: 0; }
+.version-btn .v, .version-btn .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.packs { display: flex; flex-direction: column; gap: 10px; }
+.pack {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 16px; border-radius: 10px;
+  border: 1px solid var(--line-soft); background: var(--panel);
+}
+.pack.selected { border-color: rgba(224, 38, 43, .6); background: linear-gradient(90deg, rgba(224, 38, 43, .12), var(--panel) 45%); }
+.pack .row-sub { white-space: normal; }
+.toolbar .hint.grow { flex: 1; }

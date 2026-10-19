@@ -12,21 +12,26 @@ const META = 'https://meta.fabricmc.net/v2'
  * Сам загрузчик и его библиотеки потом скачает minecraft-launcher-core.
  * Возвращает id профиля.
  */
-async function ensureFabricProfile (gameVersion) {
+async function ensureFabricProfile (gameVersion, wantLoader = null) {
   safeName(gameVersion)
+  if (wantLoader && !/^[\w.+-]{1,40}$/.test(wantLoader)) wantLoader = null
   let loaders
   try {
     loaders = await fetchJson(`${META}/versions/loader/${encodeURIComponent(gameVersion)}`)
   } catch (e) {
     // Без сети используем уже скачанный профиль, если он есть.
     const local = fabricProfilesFor(gameVersion)
+    const exact = wantLoader && local.find(id => id === `fabric-loader-${wantLoader}-${gameVersion}`)
+    if (exact) return exact
     if (local.length) return local.sort().pop()
     throw e
   }
   if (!Array.isArray(loaders) || !loaders.length) {
     throw new Error(`Fabric не поддерживает ${gameVersion}`)
   }
-  const pick = loaders.find(l => l.loader && l.loader.stable) || loaders[0]
+  // Сборка модов может требовать конкретную версию загрузчика.
+  const pick = (wantLoader && loaders.find(l => l.loader && l.loader.version === wantLoader)) ||
+    loaders.find(l => l.loader && l.loader.stable) || loaders[0]
   const loaderVersion = pick.loader.version
   const id = `fabric-loader-${loaderVersion}-${gameVersion}`
   const file = path.join(versionsDir(), id, `${id}.json`)
@@ -38,15 +43,14 @@ async function ensureFabricProfile (gameVersion) {
     writeJson(file, profile)
   }
   // Старые профили Fabric для этой же версии больше не нужны.
-  // Клиент игры (~25 МБ) из старого профиля переносим, чтобы не качать заново.
+  // Клиент игры (~25 МБ) берём из другого профиля этой же версии, чтобы не качать заново.
+  // Старые профили не удаляем: сборки модов могут требовать свою версию загрузчика.
   const newJar = path.join(versionsDir(), id, `${id}.jar`)
-  for (const old of fabricProfilesFor(gameVersion)) {
-    if (old === id) continue
-    const oldJar = path.join(versionsDir(), old, `${old}.jar`)
-    if (!fs.existsSync(newJar) && fs.existsSync(oldJar)) {
-      try { fs.renameSync(oldJar, newJar) } catch {}
-    }
-    fs.rmSync(path.join(versionsDir(), old), { recursive: true, force: true })
+  if (!fs.existsSync(newJar)) {
+    const donor = [gameVersion, ...fabricProfilesFor(gameVersion)]
+      .map(d => path.join(versionsDir(), d, `${d}.jar`))
+      .find(f => f !== newJar && fs.existsSync(f))
+    if (donor) { try { fs.copyFileSync(donor, newJar) } catch {} }
   }
   return id
 }

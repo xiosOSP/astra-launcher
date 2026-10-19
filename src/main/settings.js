@@ -51,7 +51,9 @@ function sanitizeProfile (p) {
   if (!p || typeof p !== 'object') return { version: '', loader: 'vanilla' }
   const version = typeof p.version === 'string' && p.version.length <= 80 && !/[\\/]|\.\./.test(p.version) ? p.version : ''
   const loader = p.loader === 'fabric' ? 'fabric' : 'vanilla'
-  return { version, loader }
+  const out = { version, loader }
+  if (typeof p.pack === 'string' && /^[A-Za-z0-9]{6,12}$/.test(p.pack)) { out.pack = p.pack; out.loader = 'fabric' }
+  return out
 }
 
 function sanitize (raw) {

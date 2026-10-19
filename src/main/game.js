@@ -12,6 +12,7 @@ const install = require('./install')
 const { planJava, requiredJava, testJava, majorOf } = require('./java')
 const { ensureFabricProfile } = require('./fabric')
 const { normalize, instanceDir } = require('./profiles')
+const modpacks = require('./modpacks')
 const { Progress } = require('./progress')
 const { MOCK, abortAll } = require('./net')
 const stats = require('./stats')
@@ -156,7 +157,7 @@ class Game {
     this.log = []
     this.xmlBuf = ''
     this.progress.reset()
-    this.pushLog(`[Astra] Запуск ${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.nickname}`)
+    this.pushLog(`[Astra] Запуск ${profile.pack ? 'сборки ' + profile.pack + ', ' : ''}${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.nickname}`)
 
     try {
       this.progress.setStage('Готовлю запуск')
@@ -181,7 +182,10 @@ class Game {
       let custom
       let fabricJson = null
       if (profile.loader === 'fabric') {
-        custom = await ensureFabricProfile(profile.version)
+        // Сборка модов может требовать свою версию загрузчика Fabric.
+        const pack = profile.pack ? modpacks.readPackMeta(profile.pack) : null
+        if (profile.pack && !pack) throw new Error('Сборка не найдена — установи её заново в разделе «Сборки»')
+        custom = await ensureFabricProfile(profile.version, pack && pack.loaderVersion)
         fabricJson = versions.readJsonSafe(path.join(versions.versionsDir(), custom, `${custom}.json`))
         this.pushLog(`[Astra] Профиль Fabric: ${custom}`)
       }

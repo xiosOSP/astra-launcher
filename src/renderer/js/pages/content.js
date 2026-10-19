@@ -2,9 +2,20 @@
 import { icon } from '../ui/icons.js'
 import { esc, $, $$, fmtNum, fmtSize, plural, projectIcon, toast, modal, confirmDialog } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
-import { state, on, api, profile, profileLabel, versionInfo, selectProfile, isGameBusy } from '../store.js'
+import { state, on, api, profile, profileLabel, versionInfo, selectProfile, isGameBusy, sameProfile } from '../store.js'
+
+// Моды и шейдеры работают только через Fabric (шейдеры — через мод Iris).
+const needsFabric = type => type === 'mod' || type === 'shader'
+const FOLDER = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' }
 
 const TEXT = {
+  shader: {
+    title: 'Шейдеры', one: 'шейдер', few: 'шейдера', many: 'шейдеров',
+    search: 'Найти шейдер: реалистичные, лёгкие, мультяшные…',
+    url: 'shader',
+    emptyInstalled: 'Шейдеров пока нет',
+    emptyInstalledText: 'Поставь шейдер из каталога — лаунчер сам добавит Iris. Включается в игре: Настройки → Графика → Пакеты шейдеров.'
+  },
   mod: {
     title: 'Моды', one: 'мод', few: 'мода', many: 'модов',
     search: 'Найти мод: карта, оптимизация, шейдеры…',
@@ -27,7 +38,7 @@ const SORTS = [['downloads', 'Популярные'], ['relevance', 'По зап
 function profileRunning () {
   const g = state.game
   const p = profile()
-  return isGameBusy() && g.profile && g.profile.version === p.version && g.profile.loader === p.loader
+  return isGameBusy() && sameProfile(g.profile, p)
 }
 
 // ---------- установка (общая для главной и каталога) ----------
@@ -36,7 +47,7 @@ const installedCache = new Map() // key profile+type -> Set(projectId)
 function cacheKey (p, type) { return `${p.version}|${p.loader}|${type}` }
 
 export async function loadInstalledIds (type, p = profile()) {
-  if (!p.version || (type === 'mod' && p.loader !== 'fabric')) return new Set()
+  if (!p.version || (needsFabric(type) && p.loader !== 'fabric')) return new Set()
   try {
     const ids = new Set(await api.content.installedIds({ profile: p, type }))
     installedCache.set(cacheKey(p, type), ids)
@@ -59,14 +70,14 @@ export function installButton (hit, type, { size = 'sm' } = {}) {
     return `<button class="btn ${size} done" disabled>${icon('check', 15)}Установлен</button>`
   }
   const p = profile()
-  const needFabric = type === 'mod' && p.loader !== 'fabric'
+  const needFabric = needsFabric(type) && p.loader !== 'fabric'
   return `<button class="btn ${size} outline-accent" data-install="${esc(hit.id)}">${icon('download', 15)}${needFabric ? 'Установить с Fabric' : 'Установить'}</button>`
 }
 
 export async function installProject (hit, type) {
   let p = profile()
   if (!p.version) { toast('Сначала выбери версию', 'err'); return }
-  if (type === 'mod' && p.loader !== 'fabric') {
+  if (needsFabric(type) && p.loader !== 'fabric') {
     const v = versionInfo(p.version)
     if (!v || !v.fabric) { toast(`Fabric пока не вышел для ${p.version}. Выбери другую версию.`, 'err'); return }
     await selectProfile({ version: p.version, loader: 'fabric' })
@@ -122,7 +133,7 @@ export function openProject (hit, type) {
 // ---------- страница ----------
 export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
   const T = TEXT[type]
-  const ui = { tab, query: '', sort: 'downloads', offset: 0, hits: [], total: 0, loading: false, error: null, installed: [], seq: 0 }
+  const ui = { updates: null, checking: false, updatingAll: false, tab, query: '', sort: 'downloads', offset: 0, hits: [], total: 0, loading: false, error: null, installed: [], seq: 0 }
   let searchTimer = 0
 
   root.innerHTML = `
@@ -146,12 +157,12 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
   function gate () {
     const p = profile()
     if (!p.version) return `<div class="empty">${blockSvg('stone', 3)}<h3>Версия не выбрана</h3><p>Выбери версию на главной или в разделе «Версии».</p></div>`
-    if (type !== 'mod' || p.loader === 'fabric') return null
+    if (!needsFabric(type) || p.loader === 'fabric') return null
     const v = versionInfo(p.version)
     if (v && !v.fabric) {
-      return `<div class="empty">${blockSvg('crimson', 11)}<h3>Для ${esc(p.version)} модов нет</h3><p>Fabric пока не поддерживает эту версию. Выбери другую — например, последнюю.</p><button class="btn" data-goto-versions>${icon('square-stack', 16)}Выбрать версию</button></div>`
+      return `<div class="empty">${blockSvg('crimson', 11)}<h3>Для ${esc(p.version)} ${type === 'shader' ? 'шейдеров' : 'модов'} нет</h3><p>Fabric пока не поддерживает эту версию. Выбери другую — например, последнюю.</p><button class="btn" data-goto-versions>${icon('square-stack', 16)}Выбрать версию</button></div>`
     }
-    return `<div class="empty">${blockSvg('grass', 5)}<h3>Моды работают через Fabric</h3><p>Сейчас выбрана обычная ${esc(p.version)}. Включи Fabric — у сборки появится своя папка для модов, миры обычной версии не пострадают.</p><button class="btn primary" data-enable-fabric>${icon('puzzle', 16)}Включить Fabric для ${esc(p.version)}</button></div>`
+    return `<div class="empty">${blockSvg('grass', 5)}<h3>${type === 'shader' ? 'Шейдеры работают через Fabric и Iris' : 'Моды работают через Fabric'}</h3><p>Сейчас выбрана обычная ${esc(p.version)}. Включи Fabric — у неё появится своя папка, миры обычной версии не пострадают.${type === 'shader' ? ' Iris лаунчер поставит сам.' : ''}</p><button class="btn primary" data-enable-fabric>${icon('puzzle', 16)}Включить Fabric для ${esc(p.version)}</button></div>`
   }
 
   function paintHead () {
@@ -210,6 +221,11 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
   }
 
   function installedRow (it) {
+    const upd = ui.updates && ui.updates[it.file]
+    const task = state.tasks['upd:' + it.file]
+    const updBtn = task && !task.done
+      ? `<button class="btn sm" disabled>${icon('loader-circle', 14).replace('<svg ', '<svg class="spin" ')}Обновляю</button>`
+      : upd ? `<button class="btn sm outline-accent" data-update="${esc(it.file)}" title="${esc(upd.current)} → ${esc(upd.latest)}">${icon('circle-arrow-up', 14)}${esc(upd.latest)}</button>` : ''
     const toggle = type === 'mod'
       ? `<label class="switch" title="${it.enabled ? 'Выключить' : 'Включить'}"><input type="checkbox" data-toggle="${esc(it.file)}" ${it.enabled ? 'checked' : ''}><span></span></label>` : ''
     return `<div class="row ${it.enabled ? '' : 'disabled-item'}">
@@ -219,7 +235,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
         <div class="row-sub">${esc(it.description || it.file)}</div>
       </div>
       <div class="row-meta"><span>${it.folder ? 'папка' : fmtSize(it.size)}</span></div>
-      <div class="row-actions">${toggle}<button class="btn sm btn-icon danger" data-remove="${esc(it.file)}" title="Удалить">${icon('trash-2', 15)}</button></div>
+      <div class="row-actions">${updBtn}${toggle}<button class="btn sm btn-icon danger" data-remove="${esc(it.file)}" title="Удалить">${icon('trash-2', 15)}</button></div>
     </div>`
   }
 
@@ -231,8 +247,17 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
       return
     }
     const off = ui.installed.filter(i => !i.enabled).length
+    const n = ui.updates ? Object.keys(ui.updates).length : 0
+    const where = type === 'resourcepack' ? '. Включаются в игре: Настройки → Пакеты ресурсов' : type === 'shader' ? '. Включаются в игре: Настройки → Графика → Пакеты шейдеров' : ''
+    const updBtn = ui.updatingAll
+      ? `<button class="btn sm" disabled>${icon('loader-circle', 15).replace('<svg ', '<svg class="spin" ')}Обновляю…</button>`
+      : ui.checking
+        ? `<button class="btn sm" disabled>${icon('loader-circle', 15).replace('<svg ', '<svg class="spin" ')}Проверяю…</button>`
+        : n
+          ? `<button class="btn sm primary" data-update-all>${icon('circle-arrow-up', 15)}Обновить всё (${n})</button>`
+          : `<button class="btn sm" data-check-updates>${icon('refresh-cw', 15)}${ui.updates ? 'Всё обновлено' : 'Проверить обновления'}</button>`
     body.innerHTML = `
-      <div class="toolbar"><span class="hint">${ui.installed.length} ${plural(ui.installed.length, T.one, T.few, T.many)}${off ? `, выключено: ${off}` : ''}${type === 'resourcepack' ? '. Включаются в игре: Настройки → Пакеты ресурсов' : ''}</span></div>
+      <div class="toolbar"><span class="hint grow">${ui.installed.length} ${plural(ui.installed.length, T.one, T.few, T.many)}${off ? `, выключено: ${off}` : ''}${where}</span>${updBtn}</div>
       <div class="list">${ui.installed.map(installedRow).join('')}</div>`
   }
 
@@ -270,7 +295,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
 
   async function loadInstalled () {
     const p = profile()
-    if (!p.version || (type === 'mod' && p.loader !== 'fabric')) { ui.installed = []; return }
+    if (!p.version || (needsFabric(type) && p.loader !== 'fabric')) { ui.installed = []; return }
     try { ui.installed = await api.content.list({ profile: p, type }) } catch (e) { ui.installed = []; toast(e.message, 'err') }
     await loadInstalledIds(type, p)
   }
@@ -289,7 +314,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
     if (t.closest('#c-folder')) {
       const p = profile()
       if (!p.version) return
-      api.shell.openFolder(type === 'mod' ? 'mods' : 'resourcepacks', p).catch(err => toast(err.message, 'err'))
+      api.shell.openFolder(FOLDER[type], p).catch(err => toast(err.message, 'err'))
       return
     }
     if (t.closest('[data-enable-fabric]')) {
@@ -303,6 +328,42 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
     if (inst) {
       const hit = ui.hits.find(h => h.id === inst.dataset.install)
       if (hit) installProject(hit, type)
+      return
+    }
+    if (t.closest('[data-check-updates]')) {
+      ui.checking = true; paintInstalled()
+      try {
+        const list = await api.content.checkUpdates({ profile: profile(), type })
+        ui.updates = Object.fromEntries(list.map(u => [u.file, u]))
+        if (!list.length) toast('Всё уже последней версии')
+      } catch (err) { toast(err.message, 'err') }
+      ui.checking = false; paintInstalled()
+      return
+    }
+    if (t.closest('[data-update-all]')) {
+      if (profileRunning()) { toast('Сначала закрой игру — эта сборка сейчас запущена', 'err'); return }
+      ui.updatingAll = true; paintInstalled()
+      let ok = 0
+      for (const file of Object.keys(ui.updates || {})) {
+        try { await api.content.update({ profile: profile(), type, file }); ok++ } catch (err) { toast(`${ui.updates[file].title}: ${err.message}`, 'err', 6000) }
+      }
+      ui.updatingAll = false
+      ui.updates = {}
+      await loadInstalled(); paint()
+      if (ok) toast(`Обновлено: ${ok}`)
+      return
+    }
+    const up = t.closest('[data-update]')
+    if (up) {
+      if (profileRunning()) { toast('Сначала закрой игру — эта сборка сейчас запущена', 'err'); return }
+      const file = up.dataset.update
+      try {
+        await api.content.update({ profile: profile(), type, file })
+        const title = ui.updates[file] && ui.updates[file].title
+        delete ui.updates[file]
+        toast(`${title || 'Файл'} обновлён`)
+      } catch (err) { toast(err.message, 'err', 6000) }
+      await loadInstalled(); paint()
       return
     }
     const rm = t.closest('[data-remove]')
@@ -348,6 +409,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
 
   let lastProfile = JSON.stringify(profile())
   const off = on((_s, patch) => {
+    if ('tasks' in patch && ui.tab === 'installed' && !ui.updatingAll) paintInstalled()
     if ('tasks' in patch && ui.tab === 'catalog') {
       $$('[data-actions]', body).forEach(box => {
         const hit = ui.hits.find(h => h.id === box.closest('[data-id]').dataset.id)
@@ -359,6 +421,7 @@ export function render (root, { type = 'mod', tab = 'catalog' } = {}) {
       if (now !== lastProfile || 'versions' in patch) {
         const changed = now !== lastProfile
         lastProfile = now
+        if (changed) ui.updates = null
         loadInstalled().then(() => {
           paint()
           if (ui.tab === 'catalog' && (changed || !ui.hits.length)) search(true)

@@ -1,7 +1,7 @@
 import { icon } from './ui/icons.js'
 import { esc, $, modal, toast } from './ui/dom.js'
 import { starSvg, avatarSvg } from './art/blocks.js'
-import { state, set, on, api, refreshVersions, refreshStats, profileLabel } from './store.js'
+import { state, set, on, api, refreshVersions, refreshStats, refreshPacks, profileLabel } from './store.js'
 import { register, go, onRoute } from './router.js'
 import * as home from './pages/home.js'
 import * as versions from './pages/versions.js'
@@ -9,6 +9,7 @@ import * as content from './pages/content.js'
 import * as shots from './pages/shots.js'
 import * as settingsPage from './pages/settings.js'
 import * as worldsPage from './pages/worlds.js'
+import * as modpacksPage from './pages/modpacks.js'
 import { openNickMenu, initUpdates, showCrash } from './ui/extras.js'
 
 register('home', home)
@@ -17,13 +18,17 @@ register('mods', { render: (root, p) => content.render(root, { ...p, type: 'mod'
 register('packs', { render: (root, p) => content.render(root, { ...p, type: 'resourcepack' }) })
 register('shots', shots)
 register('worlds', worldsPage)
+register('modpacks', modpacksPage)
+register('shaders', { render: (root, p) => content.render(root, { ...p, type: 'shader' }) })
 register('settings', settingsPage)
 
 const NAV = [
   ['home', 'house', 'Главная'],
   ['versions', 'gamepad-2', 'Версии'],
+  ['modpacks', 'package-plus', 'Сборки'],
   ['mods', 'puzzle', 'Моды'],
   ['packs', 'layers', 'Ресурспаки'],
+  ['shaders', 'sun', 'Шейдеры'],
   ['worlds', 'globe', 'Миры'],
   ['shots', 'camera', 'Скриншоты'],
   ['settings', 'settings', 'Настройки']
@@ -219,6 +224,7 @@ async function init () {
   })
   initUpdates()
   refreshStats()
+  refreshPacks()
   api.on('task:status', st => {
     set({ tasks: { ...state.tasks, [st.key]: st } })
   })
