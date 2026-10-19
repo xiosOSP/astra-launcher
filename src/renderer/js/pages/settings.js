@@ -37,8 +37,14 @@ export function render (root) {
       </section>
 
       <section class="card">
-        <h2 class="card-title">${icon('monitor', 18)}Окно игры</h2>
-        <p class="card-sub">Размер окна при запуске и что делать с лаунчером, пока ты играешь.</p>
+        <h2 class="card-title">${icon('monitor', 18)}Игра</h2>
+        <p class="card-sub">Язык, размер окна и что делать с лаунчером, пока ты играешь.</p>
+        <div class="set-row">
+          <div class="txt"><b>Язык игры</b><span>Ставится в каждой сборке при первом запуске. Если сменишь язык в самой игре — лаунчер его не тронет</span></div>
+          <select class="input" id="st-lang" style="width:190px">
+            ${[['ru_ru', 'Русский'], ['uk_ua', 'Українська'], ['be_by', 'Беларуская'], ['kk_kz', 'Қазақша'], ['en_us', 'English'], ['', 'Не менять']].map(([v, l]) => `<option value="${v}" ${s.gameLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
         <div class="set-row">
           <div class="txt"><b>Полный экран</b><span>Игра откроется сразу на весь экран</span></div>
           <label class="switch"><input type="checkbox" id="st-full" ${s.fullscreen ? 'checked' : ''}><span></span></label>
@@ -204,6 +210,7 @@ export function render (root) {
   paintNicks()
 
   // Миры, Discord, обновления
+  $('#st-lang', root).addEventListener('change', e => save({ gameLanguage: e.target.value }, e.target.value ? 'Язык применится при следующем запуске каждой сборки' : 'Лаунчер не будет менять язык игры'))
   $('#st-autobackup', root).addEventListener('change', e => save({ autoBackup: e.target.checked }))
   $('#st-keep', root).addEventListener('change', e => save({ keepBackups: Number(e.target.value) }))
   $('#st-discord', root).addEventListener('change', e => save({ discordStatus: e.target.checked }))

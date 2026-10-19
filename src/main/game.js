@@ -21,6 +21,7 @@ const worlds = require('./worlds')
 const discord = require('./discord')
 const accounts = require('./accounts')
 const authlib = require('./authlib')
+const language = require('./language')
 
 // Java мы проверяем сами (javaw.exe ничего не печатает в -version, из-за чего MCLC падает).
 Handler.prototype.checkJava = function () { return Promise.resolve({ run: true }) }
@@ -217,6 +218,12 @@ class Game {
       const installedJava = await install.run(planned, this.progress, () => this.cancelled)
       if (!javaPath) javaPath = installedJava
       this.pushLog(`[Astra] Java: ${javaPath}`)
+
+      // Язык игры (по умолчанию русский) — один раз для каждой сборки.
+      try {
+        const code = language.apply(instanceDir(profile, true), s.gameLanguage, planned.langStyle)
+        if (code) this.pushLog(`[Astra] Язык игры: ${code}`)
+      } catch (e) { this.pushLog('[Astra] Не удалось выставить язык игры: ' + e.message) }
 
       // Запуск
       this.state = 'starting'

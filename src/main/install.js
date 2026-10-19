@@ -8,6 +8,7 @@ const path = require('path')
 const crypto = require('crypto')
 const { fetchJson, download, abortAll, MOCK } = require('./net')
 const { installJava } = require('./java')
+const language = require('./language')
 
 const ASSETS_HOST = 'https://resources.download.minecraft.net'
 const OS = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux'
@@ -97,6 +98,7 @@ async function plan (ctx) {
   }
 
   // Звуки и текстуры. Список берём из индекса и кладём туда, где его ищет MCLC.
+  let langStyle = 'lower'
   const ai = vmeta.assetIndex
   if (ai && ai.url) {
     // MCLC ищет индекс под именем версии (у Fabric — под именем профиля).
@@ -111,6 +113,7 @@ async function plan (ctx) {
       fs.mkdirSync(path.dirname(indexFile), { recursive: true })
       fs.writeFileSync(indexFile, JSON.stringify(index))
     }
+    langStyle = language.styleFromIndex(index)
     const seen = new Set()
     for (const obj of Object.values(index.objects || {})) {
       if (!obj || !obj.hash || seen.has(obj.hash)) continue
@@ -129,6 +132,7 @@ async function plan (ctx) {
     natives,
     nativesDir: path.join(root, 'natives', vmeta.id),
     logConfig,
+    langStyle,
     java: ctx.java
   }
 }
