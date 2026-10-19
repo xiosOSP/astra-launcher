@@ -23,6 +23,8 @@ const ALLOWED_HOSTS = new Set([
   'maven.fabricmc.net',
   'api.adoptium.net',
   'github.com',
+  'authserver.ely.by',
+  'authlib-injector.yushi.moe',
   'raw.githubusercontent.com',
   'gitlab.com',
   'api.github.com',
@@ -98,6 +100,30 @@ async function fetchJson (url, opts = {}) {
   throw lastErr
 }
 
+// POST с JSON. Не бросает ошибку на 4xx — вызывающий сам разбирает ответ сервера.
+async function postJson (url, body, { timeout = 20000 } = {}) {
+  if (MOCK) return mock.post(url, body)
+  checkUrl(url)
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeout)
+  try {
+    const res = await net.fetch(url, {
+      method: 'POST',
+      headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    })
+    const text = await res.text()
+    let data = null
+    try { data = text ? JSON.parse(text) : null } catch {}
+    return { status: res.status, ok: res.ok, data }
+  } catch (e) {
+    throw friendlyError(e, url)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Скачивает файл во временный, проверяет хеш, затем переименовывает.
  * hash: { algo: 'sha1'|'sha256'|'sha512', value }
@@ -161,4 +187,4 @@ async function download (url, dest, { hash, onProgress, idle = 30000, group = 'g
   }
 }
 
-module.exports = { fetchJson, download, abortAll, USER_AGENT, MOCK, ALLOWED_HOSTS }
+module.exports = { fetchJson, postJson, download, abortAll, USER_AGENT, MOCK, ALLOWED_HOSTS }

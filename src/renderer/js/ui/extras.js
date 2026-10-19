@@ -1,8 +1,8 @@
 // Переключатель ников, обновление лаунчера и окно «Почему игра закрылась».
 import { icon } from './icons.js'
 import { esc, $, modal, popupMenu, toast } from './dom.js'
-import { avatarSvg } from '../art/blocks.js'
-import { state, set, api } from '../store.js'
+import { avatarHtml } from '../art/blocks.js'
+import { state, set, api, refreshAccounts } from '../store.js'
 import { go } from '../router.js'
 
 const NICK_RE = /^[A-Za-z0-9_]{3,16}$/
@@ -48,22 +48,96 @@ export function addNickDialog ({ title = 'Новый ник', first = false } = 
 export async function switchNick (nick) {
   if (state.game.state !== 'idle') { toast('Ник можно сменить, когда игра закрыта', 'err'); return }
   try {
-    const settings = await api.settings.set({ nickname: nick })
+    const settings = await api.settings.set({ nickname: nick, account: '' })
     set({ settings })
     toast(`Теперь ты ${nick}`)
   } catch (e) { toast(e.message, 'err') }
 }
 
+export async function switchAccount (id) {
+  if (state.game.state !== 'idle') { toast('Аккаунт можно сменить, когда игра закрыта', 'err'); return }
+  const acc = (state.accounts || []).find(a => a.id === id)
+  try {
+    const settings = await api.settings.set({ account: id })
+    set({ settings })
+    if (acc) toast(`Теперь ты ${acc.name} (Ely.by)`)
+  } catch (e) { toast(e.message, 'err') }
+}
+
+// Вход в Ely.by. Пароль никуда не сохраняется — только токен, зашифрованный системой.
+export function elyLoginDialog () {
+  return new Promise(resolve => {
+    let done = false
+    const m = modal(`
+      <h2>Вход через Ely.by</h2>
+      <p>Ely.by — бесплатные аккаунты со скинами. Скин видят все на серверах с поддержкой Ely.by.
+        Нет аккаунта? <button class="section-link" id="ely-reg" style="display:inline-flex;margin:0">Зарегистрироваться на ely.by</button></p>
+      <div class="field"><label class="label" for="ely-login">Ник или почта</label>
+        <input class="input" id="ely-login" autocomplete="username" spellcheck="false" autofocus></div>
+      <div class="field" style="margin-top:12px"><label class="label" for="ely-pass">Пароль</label>
+        <input class="input" id="ely-pass" type="password" autocomplete="current-password"></div>
+      <div class="field" id="ely-2fa-box" style="margin-top:12px" hidden><label class="label" for="ely-2fa">Код из приложения</label>
+        <input class="input" id="ely-2fa" inputmode="numeric" maxlength="8" autocomplete="one-time-code"></div>
+      <div class="hint" id="ely-hint" style="margin-top:10px">Пароль не сохраняется.</div>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Отмена</button>
+        <button class="btn primary" id="ely-ok">Войти</button>
+      </div>`, { onClose: () => { if (!done) resolve(null) } })
+    const hint = $('#ely-hint', m.el)
+    const btn = $('#ely-ok', m.el)
+    $('#ely-reg', m.el).onclick = () => api.shell.openExternal('https://account.ely.by/register')
+    const submit = async () => {
+      const box2fa = $('#ely-2fa-box', m.el)
+      btn.disabled = true
+      btn.innerHTML = `${icon('loader-circle', 16).replace('<svg ', '<svg class="spin" ')}Вхожу…`
+      hint.classList.remove('warn')
+      try {
+        const res = await api.accounts.login({
+          login: $('#ely-login', m.el).value,
+          password: $('#ely-pass', m.el).value,
+          totp: box2fa.hidden ? undefined : $('#ely-2fa', m.el).value
+        })
+        if (res.need2fa) {
+          box2fa.hidden = false
+          hint.textContent = 'Аккаунт защищён двухфакторной проверкой — введи код из приложения.'
+          $('#ely-2fa', m.el).focus()
+        } else {
+          await refreshAccounts()
+          const settings = await api.settings.set({ account: res.account.id })
+          set({ settings })
+          done = true
+          m.close()
+          toast(`Вошёл как ${res.account.name} (Ely.by)`)
+          resolve(res.account)
+          return
+        }
+      } catch (e) {
+        hint.textContent = e.message
+        hint.classList.add('warn')
+      }
+      btn.disabled = false
+      btn.textContent = 'Войти'
+    }
+    btn.onclick = submit
+    m.el.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
+  })
+}
+
 export function openNickMenu (anchor) {
   const s = state.settings
   const nicks = s.nicknames && s.nicknames.length ? s.nicknames : [s.nickname].filter(Boolean)
+  const accs = state.accounts || []
   const markup = `
     <div class="menu-group">Ники</div>
-    ${nicks.map(n => `<button class="menu-item" role="menuitemradio" aria-checked="${n === s.nickname}" data-nick="${esc(n)}">
-      <span class="menu-avatar">${avatarSvg(n)}</span><span>${esc(n)}</span>
-      <span class="meta">${n === s.nickname ? icon('check', 16) : ''}</span></button>`).join('')}
+    ${nicks.map(n => { const on = !s.account && n === s.nickname; return `<button class="menu-item" role="menuitemradio" aria-checked="${on}" data-nick="${esc(n)}">
+      <span class="menu-avatar">${avatarHtml(n)}</span><span>${esc(n)}</span>
+      <span class="meta">${on ? icon('check', 16) : ''}</span></button>` }).join('')}
+    ${accs.length ? `<div class="menu-group">Ely.by</div>${accs.map(a => { const on = s.account === a.id; return `<button class="menu-item" role="menuitemradio" aria-checked="${on}" data-acc="${esc(a.id)}">
+      <span class="menu-avatar">${avatarHtml(a.name, true)}</span><span>${esc(a.name)}</span>
+      <span class="meta">${on ? icon('check', 16) : '<span class="chip">Ely.by</span>'}</span></button>` }).join('')}` : ''}
     <div class="menu-sep"></div>
     ${nicks.length < 10 ? `<button class="menu-item" data-add>${icon('user-plus', 16)} Добавить ник</button>` : ''}
+    <button class="menu-item" data-ely>${icon('shield-check', 16)} Войти через Ely.by (скины)</button>
     <button class="menu-item" data-manage>${icon('settings', 16)} Настройки игрока</button>`
   popupMenu(anchor, markup, {
     align: 'left',
@@ -72,7 +146,9 @@ export function openNickMenu (anchor) {
         const b = e.target.closest('.menu-item')
         if (!b) return
         close()
-        if (b.dataset.nick && b.dataset.nick !== state.settings.nickname) return switchNick(b.dataset.nick)
+        if (b.dataset.nick && (b.dataset.nick !== state.settings.nickname || state.settings.account)) return switchNick(b.dataset.nick)
+        if (b.dataset.acc && b.dataset.acc !== state.settings.account) return switchAccount(b.dataset.acc)
+        if (b.dataset.ely !== undefined) return elyLoginDialog()
         if (b.dataset.add !== undefined) {
           const n = await addNickDialog()
           if (n) toast(`Ник ${n} добавлен и выбран`)

@@ -100,6 +100,12 @@ function hash (str) {
   return h >>> 0
 }
 
+/** Аватар: для аккаунта Ely.by — лицо со скина поверх нарисованного запасного. */
+export function avatarHtml (name, ely = false) {
+  const safe = String(name || '').replace(/[^A-Za-z0-9_]/g, '')
+  return avatarSvg(name) + (ely && safe ? `<span class="skin-head"><img data-skin alt="" src="https://skinsystem.ely.by/skins/${safe}.png"></span>` : '')
+}
+
 /** Запасной аватар 8×8 по нику (если скин не загрузился). */
 export function avatarSvg (nick = '?') {
   const r = rng(hash(nick || '?'))

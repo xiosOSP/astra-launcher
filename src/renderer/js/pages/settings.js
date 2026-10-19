@@ -1,7 +1,7 @@
 import { icon } from '../ui/icons.js'
 import { esc, $, $$, toast, confirmDialog } from '../ui/dom.js'
-import { avatarSvg } from '../art/blocks.js'
-import { addNickDialog, switchNick, getUpdateState, openUpdateModal } from '../ui/extras.js'
+import { avatarHtml } from '../art/blocks.js'
+import { addNickDialog, switchNick, switchAccount, elyLoginDialog, getUpdateState, openUpdateModal } from '../ui/extras.js'
 import { state, set, api } from '../store.js'
 
 export function render (root) {
@@ -21,7 +21,11 @@ export function render (root) {
         <h2 class="card-title">${icon('users', 18)}Ники</h2>
         <p class="card-sub">Ник видят другие игроки на серверах. В одиночной игре к нему привязан инвентарь в мирах, поэтому у другого ника в тех же мирах инвентарь будет свой.</p>
         <div class="list" id="st-nicks"></div>
-        <button class="btn" id="st-add-nick" style="margin-top:12px">${icon('user-plus', 16)}Добавить ник</button>
+        <div class="inline" style="margin-top:12px; gap:8px">
+          <button class="btn" id="st-add-nick">${icon('user-plus', 16)}Добавить ник</button>
+          <button class="btn" id="st-ely">${icon('shield-check', 16)}Войти через Ely.by</button>
+        </div>
+        <p class="hint" style="margin-top:10px">Ely.by — бесплатные аккаунты со скинами: свой скин увидят все на серверах с поддержкой Ely.by.</p>
       </section>
 
       <section class="card">
@@ -139,18 +143,45 @@ export function render (root) {
   const paintNicks = () => {
     const cur = state.settings
     const nicks = cur.nicknames.length ? cur.nicknames : [cur.nickname].filter(Boolean)
-    $('#st-nicks', root).innerHTML = nicks.map(n => `
-      <div class="row ${n === cur.nickname ? 'selected' : ''}">
-        <span class="avatar sm">${avatarSvg(n)}</span>
-        <div class="row-main"><div class="row-title">${esc(n)} ${n === cur.nickname ? '<span class="chip accent">Сейчас</span>' : ''}</div></div>
+    const nickRows = nicks.map(n => { const on = !cur.account && n === cur.nickname; return `
+      <div class="row ${on ? 'selected' : ''}">
+        <span class="avatar sm">${avatarHtml(n)}</span>
+        <div class="row-main"><div class="row-title">${esc(n)} ${on ? '<span class="chip accent">Сейчас</span>' : ''}</div></div>
         <div class="row-actions">
-          ${n === cur.nickname ? '' : `<button class="btn sm outline-accent" data-use="${esc(n)}">Выбрать</button>`}
+          ${on ? '' : `<button class="btn sm outline-accent" data-use="${esc(n)}">Выбрать</button>`}
           ${nicks.length > 1 ? `<button class="btn sm btn-icon danger" data-del-nick="${esc(n)}" title="Убрать ник">${icon('trash-2', 15)}</button>` : ''}
         </div>
-      </div>`).join('')
+      </div>` })
+    const accRows = (state.accounts || []).map(a => { const on = cur.account === a.id; return `
+      <div class="row ${on ? 'selected' : ''}">
+        <span class="avatar sm">${avatarHtml(a.name, true)}</span>
+        <div class="row-main"><div class="row-title">${esc(a.name)} <span class="chip">Ely.by</span> ${on ? '<span class="chip accent">Сейчас</span>' : ''}</div><div class="row-sub">${esc(a.login || '')}</div></div>
+        <div class="row-actions">
+          ${on ? '' : `<button class="btn sm outline-accent" data-use-acc="${esc(a.id)}">Выбрать</button>`}
+          <button class="btn sm ghost" data-logout="${esc(a.id)}">Выйти</button>
+        </div>
+      </div>` })
+    $('#st-nicks', root).innerHTML = nickRows.join('') + accRows.join('')
     $('#st-add-nick', root).hidden = nicks.length >= 10
   }
   $('#st-nicks', root).addEventListener('click', async e => {
+    const ua = e.target.closest('[data-use-acc]')
+    if (ua) { await switchAccount(ua.dataset.useAcc); paintNicks(); return }
+    const lo = e.target.closest('[data-logout]')
+    if (lo) {
+      const acc = (state.accounts || []).find(a => a.id === lo.dataset.logout)
+      const ok = await confirmDialog({ title: `Выйти из ${acc ? acc.name : 'аккаунта'}?`, text: 'Аккаунт пропадёт из лаунчера. Миры и прогресс останутся — войди снова, и всё вернётся.', ok: 'Выйти' })
+      if (!ok) return
+      try {
+        const settings = await api.accounts.logout(lo.dataset.logout)
+        set({ settings })
+        const { refreshAccounts } = await import('../store.js')
+        await refreshAccounts()
+        paintNicks()
+        toast('Вышел из аккаунта Ely.by')
+      } catch (err) { toast(err.message, 'err') }
+      return
+    }
     const use = e.target.closest('[data-use]')
     if (use) { await switchNick(use.dataset.use); paintNicks(); return }
     const del = e.target.closest('[data-del-nick]')
@@ -166,6 +197,9 @@ export function render (root) {
   })
   $('#st-add-nick', root).addEventListener('click', async () => {
     if (await addNickDialog()) paintNicks()
+  })
+  $('#st-ely', root).addEventListener('click', async () => {
+    if (await elyLoginDialog()) paintNicks()
   })
   paintNicks()
 

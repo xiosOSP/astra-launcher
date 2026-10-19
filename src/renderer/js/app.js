@@ -1,7 +1,7 @@
 import { icon } from './ui/icons.js'
 import { esc, $, modal, toast } from './ui/dom.js'
-import { starSvg, avatarSvg } from './art/blocks.js'
-import { state, set, on, api, refreshVersions, refreshStats, refreshPacks, profileLabel } from './store.js'
+import { starSvg, avatarHtml } from './art/blocks.js'
+import { state, set, on, api, refreshVersions, refreshStats, refreshPacks, refreshAccounts, activeAccount, activeName, profileLabel } from './store.js'
 import { register, go, onRoute } from './router.js'
 import * as home from './pages/home.js'
 import * as versions from './pages/versions.js'
@@ -96,12 +96,14 @@ function renderPlayer () {
   const s = state.settings
   const g = state.game.state
   const status = g === 'running' ? 'В игре' : g === 'idle' ? 'Готов к игре' : 'Запускает игру'
-  const key = [s.nickname, g === 'idle', status].join('|')
+  const ely = activeAccount()
+  const name = activeName()
+  const key = [name, !!ely, g === 'idle', status].join('|')
   if (key === playerKey) return // не перерисовываем на каждый процент загрузки
   playerKey = key
   $('#player').innerHTML = `
-    <span class="avatar-wrap"><span class="avatar">${avatarSvg(s.nickname)}</span><span class="dot ${g !== 'idle' ? 'busy' : ''}"></span></span>
-    <span><div class="player-name">${esc(s.nickname || 'Игрок')}</div><div class="player-status">${status}</div></span>`
+    <span class="avatar-wrap"><span class="avatar">${avatarHtml(name, !!ely)}</span><span class="dot ${g !== 'idle' ? 'busy' : ''}"></span></span>
+    <span><div class="player-name">${esc(name || 'Игрок')}</div><div class="player-status">${ely ? '<span class="ely-tag">Ely.by</span>' : ''}${status}</div></span>`
 }
 
 let pillMode = ''
@@ -202,7 +204,7 @@ async function init () {
   renderGamePill()
 
   on((s, patch) => {
-    if ('settings' in patch || 'game' in patch) renderPlayer()
+    if ('settings' in patch || 'game' in patch || 'accounts' in patch) renderPlayer()
     if ('game' in patch) renderGamePill()
   })
 
@@ -228,6 +230,7 @@ async function init () {
   initUpdates()
   refreshStats()
   refreshPacks()
+  refreshAccounts()
   api.on('task:status', st => {
     set({ tasks: { ...state.tasks, [st.key]: st } })
   })

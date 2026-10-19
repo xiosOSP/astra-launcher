@@ -876,3 +876,10 @@ input[type="range"].range { width: 100%; appearance: none; background: none; hei
 .signal.s2 i.on { background: var(--warn); }
 .signal.s1 i.on { background: #ff7a70; }
 .page-head + .hint svg, p.hint > svg { vertical-align: -2px; }
+
+/* ============ 1.5.0: Ely.by ============ */
+.avatar, .menu-avatar { position: relative; }
+.skin-head { position: absolute; inset: 0; overflow: hidden; }
+/* Лицо скина: квадрат 8×8 начиная с (8,8) на развёртке 64×64 */
+.skin-head img { position: absolute; width: 800%; height: auto; left: -100%; top: -100%; image-rendering: pixelated; max-width: none; }
+.ely-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px; font-size: 10.5px; font-weight: 800; color: #9be7b4; background: rgba(74, 222, 128, .12); }

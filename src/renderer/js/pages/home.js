@@ -3,7 +3,7 @@ import { esc, $, $$, fmtNum, plural, projectIcon, toast } from '../ui/dom.js'
 import { blockSvg } from '../art/blocks.js'
 import { mountScene } from '../art/scene.js'
 import { mountLaunch, QUICK } from '../ui/launch.js'
-import { state, on, api, profile, versionInfo, selectProfile, refreshVersions, playTime, packInfo } from '../store.js'
+import { state, on, api, profile, versionInfo, selectProfile, refreshVersions, playTime, packInfo, activeName } from '../store.js'
 import { go } from '../router.js'
 import { openProject, loadInstalledIds, isInstalled } from './content.js'
 
@@ -114,7 +114,7 @@ export function render (root) {
 
   function paintHello () {
     const total = playTime(state.stats.totalMs)
-    $('#h-hello', root).innerHTML = `${icon('sparkles', 15)}<span>Привет, ${esc(state.settings.nickname || 'игрок')}</span>${total ? `<span class="hello-stat">${icon('clock', 14)}наиграно ${total}</span>` : ''}`
+    $('#h-hello', root).innerHTML = `${icon('sparkles', 15)}<span>Привет, ${esc(activeName() || 'игрок')}</span>${total ? `<span class="hello-stat">${icon('clock', 14)}наиграно ${total}</span>` : ''}`
   }
 
   // ---------- карточки версий ----------
@@ -258,7 +258,7 @@ export function render (root) {
   }
   refresh()
   cleanups.push(on((_s, patch) => {
-    if ('stats' in patch) paintHello()
+    if ('stats' in patch || 'accounts' in patch) paintHello()
     if ('settings' in patch) { paintHello(); paintVersions(); paintPromo(); refresh() }
     if ('versions' in patch || 'versionsError' in patch) { paintVersions(); paintPromo(); refresh() }
     if ('tasks' in patch || 'game' in patch || 'packs' in patch) paintPromo()

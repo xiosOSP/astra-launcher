@@ -57,6 +57,8 @@ export function projectIcon (p, cls = '') {
 // Если иконка не загрузилась — показываем букву (без inline-обработчиков, их запрещает CSP).
 document.addEventListener('error', e => {
   const img = e.target
+  // Скин Ely.by не загрузился — остаётся нарисованный аватар под ним.
+  if (img.tagName === 'IMG' && img.dataset.skin !== undefined) { img.remove(); return }
   if (img.tagName === 'IMG' && img.dataset.fallback !== undefined) {
     const box = img.parentElement
     box.textContent = img.dataset.fallback

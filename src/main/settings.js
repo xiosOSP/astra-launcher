@@ -26,6 +26,7 @@ function defaults () {
     keepBackups: 5,
     discordStatus: true,
     servers: [],
+    account: '',
     memoryGb: Math.min(Math.max(2, Math.floor(ram / 2)), 6),
     javaPath: '',
     gameDir: '',
@@ -71,6 +72,8 @@ function sanitize (raw) {
     autoBackup: s.autoBackup !== false,
     keepBackups: clampInt(s.keepBackups, 1, 30, 5),
     discordStatus: s.discordStatus !== false,
+    // Активный аккаунт Ely.by (id профиля). Пусто — играем по нику.
+    account: typeof s.account === 'string' && /^[0-9a-f]{32}$/.test(s.account) ? s.account : '',
     servers: (Array.isArray(s.servers) ? s.servers : [])
       .filter(x => x && typeof x.address === 'string' && /^[A-Za-z0-9.\-_]{1,253}(:\d{1,5})?$/.test(x.address.trim()))
       .map(x => ({ name: String(x.name || x.address).trim().slice(0, 40) || x.address, address: x.address.trim() }))

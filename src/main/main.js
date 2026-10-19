@@ -14,6 +14,7 @@ const stats = require('./stats')
 const worlds = require('./worlds')
 const modpacks = require('./modpacks')
 const servers = require('./servers')
+const accounts = require('./accounts')
 const profiles = require('./profiles')
 const { hasNonAscii } = require('./paths')
 const { MOCK } = require('./net')
@@ -156,8 +157,9 @@ function registerIpc () {
 
   handle('settings:get', () => settings.load())
   handle('settings:set', patch => {
-    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers']
-    if ('nickname' in (patch || {}) && game.state !== 'idle') throw new Error('Ник можно сменить, когда игра закрыта')
+    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers', 'account']
+    if (('nickname' in (patch || {}) || 'account' in (patch || {})) && game.state !== 'idle') throw new Error('Ник можно сменить, когда игра закрыта')
+    if (patch && patch.account && !accounts.list().some(a => a.id === patch.account)) throw new Error('Такого аккаунта нет')
     const clean = {}
     for (const k of allowed) if (patch && k in patch) clean[k] = patch[k]
     if ('nickname' in clean && !settings.NICK_RE.test(String(clean.nickname))) {
@@ -270,6 +272,16 @@ function registerIpc () {
     const patch = { recentProfiles: recent }
     if (s.profile.pack === id) patch.profile = { version: s.profile.version, loader: 'vanilla' }
     return settings.save(patch)
+  })
+
+  // ---------- аккаунты Ely.by ----------
+  handle('accounts:list', () => accounts.list())
+  handle('accounts:login', params => accounts.login(params || {}))
+  handle('accounts:logout', async id => {
+    if (game.state !== 'idle') throw new Error('Сначала закрой игру')
+    await accounts.logout(String(id))
+    if (settings.load().account === id) settings.save({ account: '' })
+    return settings.load()
   })
 
   // ---------- сервера ----------

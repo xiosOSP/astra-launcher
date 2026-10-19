@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('astra', {
     openPage: () => call('update:openPage')
   },
   stats: () => call('stats:get'),
+  accounts: {
+    list: () => call('accounts:list'),
+    login: params => call('accounts:login', params),
+    logout: id => call('accounts:logout', id)
+  },
   servers: {
     ping: address => call('servers:ping', address)
   },

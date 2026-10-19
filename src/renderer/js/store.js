@@ -9,6 +9,7 @@ export const state = {
   game: { state: 'idle' },
   stats: { byProfile: {}, totalMs: 0 },
   packs: [], // установленные сборки модов
+  accounts: [], // аккаунты Ely.by (без токенов)
   tasks: {} // key -> { stage, current, total, done, error }
 }
 
@@ -47,6 +48,21 @@ export function profileLabel (p = profile()) {
 
 export function sameProfile (a, b) {
   return !!a && !!b && a.version === b.version && a.loader === b.loader && (a.pack || '') === (b.pack || '')
+}
+
+export async function refreshAccounts () {
+  try { set({ accounts: await api.accounts.list() }) } catch {}
+}
+
+// Под каким именем сейчас играем: аккаунт Ely.by или ник.
+export function activeAccount () {
+  const id = state.settings && state.settings.account
+  return id ? (state.accounts || []).find(a => a.id === id) || null : null
+}
+
+export function activeName () {
+  const a = activeAccount()
+  return a ? a.name : (state.settings && state.settings.nickname) || ''
 }
 
 export async function refreshPacks () {

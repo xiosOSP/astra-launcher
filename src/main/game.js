@@ -19,6 +19,8 @@ const stats = require('./stats')
 const crash = require('./crash')
 const worlds = require('./worlds')
 const discord = require('./discord')
+const accounts = require('./accounts')
+const authlib = require('./authlib')
 
 // Java мы проверяем сами (javaw.exe ничего не печатает в -version, из-за чего MCLC падает).
 Handler.prototype.checkJava = function () { return Promise.resolve({ run: true }) }
@@ -145,7 +147,7 @@ class Game {
     if (this.state !== 'idle') throw new Error('Игра уже запускается или запущена')
     const profile = normalize(rawProfile)
     const s = settings.load()
-    if (!settings.NICK_RE.test(s.nickname)) throw new Error('Сначала укажи ник')
+    if (!s.account && !settings.NICK_RE.test(s.nickname)) throw new Error('Сначала укажи ник')
 
     this.state = 'preparing'
     this.profile = profile
@@ -158,7 +160,7 @@ class Game {
     this.xmlBuf = ''
     this.progress.reset()
     if (server) this.pushLog(`[Astra] Сразу на сервер ${server}`)
-    this.pushLog(`[Astra] Запуск ${profile.pack ? 'сборки ' + profile.pack + ', ' : ''}${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.nickname}`)
+    this.pushLog(`[Astra] Запуск ${profile.pack ? 'сборки ' + profile.pack + ', ' : ''}${profile.version}${profile.loader === 'fabric' ? ' + Fabric' : ''} как ${s.account ? 'аккаунт Ely.by' : s.nickname}`)
 
     try {
       this.progress.setStage('Готовлю запуск')
@@ -198,6 +200,17 @@ class Game {
       const verJson = path.join(root, 'versions', dirName, `${profile.version}.json`)
       if (!fs.existsSync(verJson)) versions.writeJson(verJson, vmeta)
 
+      // Аккаунт Ely.by: свежий токен и authlib-injector (направляет вход и скины на Ely.by).
+      let ely = null
+      let authlibJar = null
+      if (s.account) {
+        this.progress.setStage('Проверяю вход Ely.by')
+        ely = await accounts.launchAuth(s.account)
+        authlibJar = await authlib.ensure()
+        this.pushLog(`[Astra] Ely.by: ${ely.name}${ely.offline ? ' (нет связи с Ely.by — пробую со старым входом)' : ''}`)
+      }
+      this.checkCancel()
+
       // Общий план и загрузка одной шкалой.
       const planned = await install.plan({ root, vmeta, dirName, fabricJson, java: javaPlan })
       this.checkCancel()
@@ -223,18 +236,22 @@ class Game {
       const opts = {
         root,
         version: { number: profile.version, type: vmeta.type || 'release', custom },
-        authorization: {
-          access_token: crypto.randomBytes(16).toString('hex'),
-          client_token: crypto.randomBytes(16).toString('hex'),
-          uuid: offlineUuid(s.nickname),
-          name: s.nickname,
-          user_properties: '{}',
-          meta: { type: 'mojang', demo: false }
-        },
+        authorization: ely
+          ? { access_token: ely.accessToken, client_token: ely.clientToken, uuid: ely.uuid, name: ely.name, user_properties: '{}', meta: { type: 'mojang', demo: false } }
+          : {
+              access_token: crypto.randomBytes(16).toString('hex'),
+              client_token: crypto.randomBytes(16).toString('hex'),
+              uuid: offlineUuid(s.nickname),
+              name: s.nickname,
+              user_properties: '{}',
+              meta: { type: 'mojang', demo: false }
+            },
         memory: { max: `${s.memoryGb}G`, min: `${Math.min(1, s.memoryGb)}G` },
         javaPath,
         window: s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height },
         customArgs: [
+          // Для Ely.by агент должен стоять первым среди аргументов JVM.
+          ...(authlibJar ? [`-javaagent:${authlibJar}=ely.by`] : []),
           // Нативные библиотеки LWJGL/JNA/Netty — в папку лаунчера, а не во временную папку
           // профиля Windows (в ней часто кириллица).
           `-Dorg.lwjgl.system.SharedLibraryExtractPath=${extractDir}`,

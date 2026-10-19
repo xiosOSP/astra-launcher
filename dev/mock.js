@@ -171,4 +171,21 @@ async function download (url, dest, onProgress, signal) {
   return dest
 }
 
-module.exports = { json, download }
+// Ely.by: «bad» — неверный пароль, «2fa» — нужен код 123456.
+async function post (url, body) {
+  await new Promise(r => setTimeout(r, 300))
+  const u = new URL(url)
+  if (u.pathname === '/auth/authenticate') {
+    const [pass, code] = String(body.password).split(':')
+    if (pass === 'bad') return { status: 401, ok: false, data: { error: 'ForbiddenOperationException', errorMessage: 'Invalid credentials. Invalid email or password.' } }
+    if (pass === '2fa' && !code) return { status: 401, ok: false, data: { error: 'ForbiddenOperationException', errorMessage: 'Account protected with two factor auth.' } }
+    if (pass === '2fa' && code !== '123456') return { status: 401, ok: false, data: { error: 'ForbiddenOperationException', errorMessage: 'Invalid credentials. Invalid email or password.' } }
+    const name = String(body.username).split('@')[0].replace(/\W/g, '').slice(0, 16) || 'ElyPlayer'
+    const id = require('crypto').createHash('md5').update(name).digest('hex')
+    return { status: 200, ok: true, data: { accessToken: 'tok-' + Date.now(), clientToken: body.clientToken, selectedProfile: { id, name } } }
+  }
+  if (u.pathname === '/auth/refresh') return { status: 200, ok: true, data: { accessToken: 'tok-' + Date.now(), clientToken: body.clientToken } }
+  return { status: 200, ok: true, data: null }
+}
+
+module.exports = { json, download, post }
