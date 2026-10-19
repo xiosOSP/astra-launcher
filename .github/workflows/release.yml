@@ -1,0 +1,53 @@
+# Сборка и публикация релиза: при пуше тега vX.Y.Z GitHub собирает
+# portable-версию на Windows и выкладывает её вместе с update.json
+# (по нему лаунчер находит и проверяет обновление).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Версия в теге совпадает с package.json
+        shell: bash
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          if [ "v$PKG" != "$GITHUB_REF_NAME" ]; then
+            echo "Тег $GITHUB_REF_NAME, а в package.json $PKG"; exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Сборка
+        run: npx electron-builder --win portable --x64 --publish never
+
+      - name: update.json
+        run: node dev/release.js
+
+      - name: Описание релиза из CHANGELOG.md
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v v="## $V" '$0 == v {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: AstraLauncher ${{ github.ref_name }}
+          body_path: notes.md
+          files: |
+            dist/AstraLauncher-Portable-*.exe
+            dist/update.json
