@@ -1,0 +1,29 @@
+name: Shortcut checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/main/shortcuts.js'
+      - 'src/main/settings.js'
+      - 'src/renderer/js/ui/shortcuts.js'
+      - 'tests/shortcuts.test.cjs'
+      - '.github/workflows/shortcut-checks.yml'
+  workflow_dispatch:
+
+jobs:
+  shortcuts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate shortcut bindings
+        run: node --test tests/shortcuts.test.cjs
+      - name: Check JavaScript syntax
+        run: |
+          node --check src/main/shortcuts.js
+          node --check src/main/settings.js
+          node --check src/renderer/js/ui/shortcuts.js
+          node --check src/renderer/js/app.js
+          node --check src/renderer/js/pages/settings.js
