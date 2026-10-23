@@ -1,0 +1,77 @@
+/* Hotkey preferences and in-app shortcut help. */
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: min(58vh, 475px);
+  overflow-y: auto;
+  padding: 2px 4px 2px 0;
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 11px 13px;
+  background: var(--panel, #171b24);
+  border: 1px solid var(--line-soft, #2d3440);
+  border-radius: 10px;
+}
+.shortcut-row > span:first-child { min-width: 0; }
+.shortcut-row b { display: block; font-size: 13.5px; font-weight: 750; }
+.shortcut-row small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted, #a0a5b3);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+.shortcut-keys {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--line, #404653);
+  border-bottom-width: 2px;
+  border-radius: 8px;
+  color: var(--text, #f7f7fa);
+  background: var(--panel-2, #202530);
+  font: 650 12px/1.25 var(--font-body, sans-serif);
+}
+.shortcut-capture {
+  flex: none;
+  min-width: 130px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text, #f7f7fa);
+  font: inherit;
+  cursor: pointer;
+}
+.shortcut-capture:hover .shortcut-keys,
+.shortcut-capture:focus-visible .shortcut-keys {
+  color: var(--accent-hot, #ff737b);
+  border-color: var(--accent, #ef4b55);
+}
+.shortcut-capture.recording {
+  min-height: 34px;
+  padding: 5px 10px;
+  color: var(--accent-hot, #ff737b);
+  border: 1px solid var(--accent, #ef4b55);
+  background: rgba(239, 75, 85, .1);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.shortcut-hint { margin: 12px 0; }
+.modal .shortcut-list { margin-top: 14px; }
+.modal .shortcut-list .shortcut-row { padding: 10px 12px; }
+.modal .shortcut-list .shortcut-keys { font-size: 11.5px; }
+@media (max-width: 620px) {
+  .shortcut-row { flex-wrap: wrap; gap: 9px; }
+  .shortcut-capture { min-width: 0; }
+}

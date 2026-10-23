@@ -4,6 +4,8 @@ const os = require('os')
 const path = require('path')
 const { settingsFile, defaultGameDir } = require('./paths')
 
+const { SHORTCUT_DEFAULTS, sanitizeShortcuts } = require('./shortcuts')
+
 const NICK_RE = /^[A-Za-z0-9_]{3,16}$/
 
 // Память компьютера в ГБ: для текста округляем (8 ГБ, а не 7,8 → 7),
@@ -31,6 +33,7 @@ function defaults () {
     memoryMode: 'auto', // auto | manual
     lightMode: 'auto', // auto | on | off — облегчённая графика для новых сборок
     sharedControls: true, // общее управление, мышь и звук во всех версиях
+    shortcuts: { ...SHORTCUT_DEFAULTS }, // горячие клавиши только внутри лаунчера
     muteWarnings: [], // предупреждения перед запуском, которые просили не показывать
     migrationOffered: false, // предлагали ли перенести данные из TLauncher
     memoryGb: Math.min(Math.max(2, Math.floor(ram / 2)), 6),
@@ -93,6 +96,7 @@ function sanitize (raw) {
       : (raw && raw.memoryGb !== undefined && Number(raw.memoryGb) !== d.memoryGb ? 'manual' : 'auto'),
     lightMode: ['auto', 'on', 'off'].includes(s.lightMode) ? s.lightMode : 'auto',
     sharedControls: s.sharedControls !== false,
+    shortcuts: sanitizeShortcuts(s.shortcuts),
     muteWarnings: (Array.isArray(s.muteWarnings) ? s.muteWarnings : []).filter(x => typeof x === 'string' && x.length <= 200).slice(-100),
     migrationOffered: !!s.migrationOffered,
     javaPath: typeof s.javaPath === 'string' ? s.javaPath.trim().slice(0, 500) : '',

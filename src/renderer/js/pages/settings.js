@@ -4,6 +4,7 @@ import { avatarHtml } from '../art/blocks.js'
 import { addNickDialog, switchNick, switchAccount, elyLoginDialog, getUpdateState, openUpdateModal } from '../ui/extras.js'
 import { state, set, api, profile, profileLabel } from '../store.js'
 import { storageDialog, migrateDialog } from '../ui/tools.js'
+import { mountShortcutSettings } from '../ui/shortcuts.js'
 
 export function render (root) {
   const s = state.settings
@@ -78,6 +79,14 @@ export function render (root) {
             <button data-v="hide">Скрыть</button><button data-v="keep">Оставить</button><button data-v="close">Закрыть</button>
           </div>
         </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">${icon('keyboard', 18)}Горячие клавиши</h2>
+        <p class="card-sub">Назначь свои сочетания для команд AstraLauncher. Они работают только в окне лаунчера, а не в самой игре.</p>
+        <div id="st-shortcuts" class="shortcut-list"></div>
+        <p id="st-shortcuts-hint" class="hint shortcut-hint"></p>
+        <button class="btn sm ghost" id="st-shortcuts-reset">${icon('refresh-cw', 15)}Вернуть стандартные</button>
       </section>
 
       <section class="card">
@@ -172,6 +181,8 @@ export function render (root) {
       return false
     }
   }
+
+  const offShortcuts = mountShortcutSettings(root, shortcuts => save({ shortcuts }, 'Горячие клавиши сохранены'))
 
   // Ники
   const paintNicks = () => {
@@ -371,5 +382,5 @@ export function render (root) {
   $('#st-dir-reset', root).onclick = async () => {
     if (await save({ gameDir: '' }, 'Папка по умолчанию')) afterDirChange()
   }
-  return () => window.removeEventListener('astra:update', onUpd)
+  return () => { offShortcuts(); window.removeEventListener('astra:update', onUpd) }
 }

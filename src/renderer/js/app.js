@@ -13,6 +13,7 @@ import * as modpacksPage from './pages/modpacks.js'
 import * as serversPage from './pages/servers.js'
 import { openNickMenu, initUpdates, showCrash } from './ui/extras.js'
 import { copyFriendAddress, importPack, migrateDialog } from './ui/tools.js'
+import { initShortcuts, showShortcutHelp } from './ui/shortcuts.js'
 
 const contentOf = type => ({ render: (root, p) => content.render(root, { ...p, type }) })
 
@@ -64,6 +65,7 @@ function renderShell () {
   })
   $('#tip').innerHTML = TIPS[Math.floor(Math.random() * TIPS.length)]
 
+  $('#btn-shortcuts').innerHTML = icon('keyboard', 17)
   $('#btn-log').innerHTML = icon('terminal', 17)
   $('#btn-min').innerHTML = icon('minus', 17)
   $('#btn-max').innerHTML = icon('square', 14)
@@ -71,6 +73,7 @@ function renderShell () {
   $('#btn-min').onclick = () => api.win.minimize()
   $('#btn-max').onclick = () => api.win.maximize()
   $('#btn-close').onclick = () => api.win.close()
+  $('#btn-shortcuts').onclick = () => showShortcutHelp()
   $('#btn-log').onclick = () => toggleDrawer()
   $('#game-pill').onclick = () => toggleDrawer(true)
   $('#player').onclick = () => openNickMenu($('#player'))
@@ -230,6 +233,7 @@ async function init () {
   const [info, settings, gameStatus] = await Promise.all([api.info(), api.settings.get(), api.game.status()])
   set({ info, settings, game: gameStatus || { state: 'idle' } })
   renderShell()
+  initShortcuts({ toggleLog: () => toggleDrawer() })
   renderPlayer()
   renderGamePill()
 
