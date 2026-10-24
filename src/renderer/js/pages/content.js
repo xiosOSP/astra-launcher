@@ -45,7 +45,7 @@ function profileRunning () {
 // ---------- установка (общая для главной и каталога) ----------
 const installedCache = new Map() // key profile+type -> Set(projectId)
 
-function cacheKey (p, type) { return `${p.version}|${p.loader}|${type}` }
+function cacheKey (p, type) { return JSON.stringify([p.version, p.loader, p.pack || '', type]) }
 
 export async function loadInstalledIds (type, p = profile()) {
   if (!p.version || (needsFabric(type) && p.loader !== 'fabric')) return new Set()
