@@ -163,7 +163,7 @@ function registerIpc () {
 
   handle('settings:get', () => settings.load())
   handle('settings:set', patch => {
-    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers', 'account', 'gameLanguage', 'memoryMode', 'lightMode', 'sharedControls', 'shortcuts', 'muteWarnings', 'migrationOffered']
+    const allowed = settings.ALLOWED_PATCH_FIELDS
     if (('nickname' in (patch || {}) || 'account' in (patch || {})) && game.state !== 'idle') throw new Error('Ник можно сменить, когда игра закрыта')
     if (patch && patch.account && !accounts.list().some(a => a.id === patch.account)) throw new Error('Такого аккаунта нет')
     const clean = {}
