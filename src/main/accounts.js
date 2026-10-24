@@ -29,7 +29,7 @@ function save () {
 
 function seal (token) {
   if (safeStorage.isEncryptionAvailable()) return { enc: safeStorage.encryptString(token).toString('base64') }
-  return { plain: token }
+  throw new Error('Защищённое хранилище недоступно. Вход Ely.by нельзя сохранить безопасно — проверь настройки системы.')
 }
 
 function unseal (t) {
