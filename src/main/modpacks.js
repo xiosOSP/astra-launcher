@@ -107,7 +107,9 @@ function copyOverrides (src, dest, { keepUserFiles }) {
       const r = rel ? path.join(rel, e.name) : e.name
       const target = inside(dest, r)
       if (e.isDirectory()) { fs.mkdirSync(target, { recursive: true }); stack.push(r); continue }
-      if (keepUserFiles && r === 'options.txt' && fs.existsSync(target)) continue
+// Не перезаписываем уже существующие пользовательские конфиги при обновлении.
+      // Новые файлы добавляются; удаление устаревших файлов Modrinth происходит отдельно.
+      if (keepUserFiles && fs.existsSync(target)) continue
       fs.mkdirSync(path.dirname(target), { recursive: true })
       fs.copyFileSync(path.join(src, r), target)
       copied.push(r.split(path.sep).join('/'))

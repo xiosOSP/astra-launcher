@@ -6,6 +6,9 @@ const { settingsFile, defaultGameDir } = require('./paths')
 
 const { SHORTCUT_DEFAULTS, sanitizeShortcuts } = require('./shortcuts')
 
+// IPC patch schema is shared with the main process and covered by tests.
+const ALLOWED_PATCH_FIELDS = Object.freeze(['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers', 'account', 'gameLanguage', 'memoryMode', 'lightMode', 'sharedControls', 'shortcuts', 'muteWarnings', 'migrationOffered'])
+
 const NICK_RE = /^[A-Za-z0-9_]{3,16}$/
 
 // Память компьютера в ГБ: для текста округляем (8 ГБ, а не 7,8 → 7),
@@ -140,4 +143,4 @@ function gameDir () {
   return path.resolve(load().gameDir || defaultGameDir())
 }
 
-module.exports = { load, save, gameDir, totalRamGb, usableRamGb, NICK_RE, defaultGameDir }
+module.exports = { load, save, gameDir, totalRamGb, usableRamGb, NICK_RE, defaultGameDir, ALLOWED_PATCH_FIELDS }
