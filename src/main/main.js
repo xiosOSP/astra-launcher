@@ -50,8 +50,8 @@ function createWindow () {
   win = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 1080,
-    minHeight: 680,
+    minWidth: 760,
+    minHeight: 600,
     frame: false,
     show: false,
     backgroundColor: '#0F0809',
@@ -163,7 +163,7 @@ function registerIpc () {
 
   handle('settings:get', () => settings.load())
   handle('settings:set', patch => {
-    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers', 'account', 'gameLanguage', 'memoryMode', 'lightMode', 'sharedControls', 'muteWarnings', 'migrationOffered']
+    const allowed = ['nickname', 'nicknames', 'memoryGb', 'javaPath', 'gameDir', 'width', 'height', 'fullscreen', 'afterLaunch', 'jvmArgs', 'showSnapshots', 'autoUpdate', 'autoBackup', 'keepBackups', 'discordStatus', 'servers', 'account', 'gameLanguage', 'memoryMode', 'lightMode', 'sharedControls', 'shortcuts', 'muteWarnings', 'migrationOffered']
     if (('nickname' in (patch || {}) || 'account' in (patch || {})) && game.state !== 'idle') throw new Error('Ник можно сменить, когда игра закрыта')
     if (patch && patch.account && !accounts.list().some(a => a.id === patch.account)) throw new Error('Такого аккаунта нет')
     const clean = {}
@@ -310,7 +310,7 @@ function registerIpc () {
     return p
   }
   handle('worlds:list', profile => worlds.list(profiles.normalize(profile)))
-  handle('worlds:backup', ({ profile, world }) => worlds.backup(profiles.normalize(profile), String(world)))
+  handle('worlds:backup', ({ profile, world }) => worlds.backup(worldBusy(profile), String(world)))
   handle('worlds:restore', ({ profile, world, file }) => worlds.restore(worldBusy(profile), String(world), file))
   handle('worlds:removeBackup', ({ profile, world, file }) => worlds.removeBackup(profiles.normalize(profile), String(world), file))
   handle('worlds:openBackups', ({ profile, world }) => {
