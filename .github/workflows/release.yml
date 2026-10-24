@@ -44,6 +44,18 @@ jobs:
       - run: npm ci
         if: steps.ver.outputs.skip == 'false'
 
+      - name: Тесты перед выпуском
+        if: steps.ver.outputs.skip == 'false'
+        run: node --test tests/*.test.cjs
+
+      - name: Проверка синтаксиса перед выпуском
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          node --check src/main/main.js
+          node --check src/main/accounts.js
+          node --check src/main/modpacks.js
+          node --check src/renderer/js/pages/content.js
+
       - name: Сборка
         if: steps.ver.outputs.skip == 'false'
         run: npx electron-builder --win portable --x64 --publish never
