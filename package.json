@@ -1,6 +1,6 @@
 {
   "name": "astra-launcher",
-  "version": "0.2.0-v1",
+  "version": "0.2.0-v2",
   "description": "Лаунчер Minecraft с модами, ресурспаками и автоматической Java",
   "main": "src/main/main.js",
   "scripts": {
